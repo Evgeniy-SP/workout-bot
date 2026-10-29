@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bot_user
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: workout_bot
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  bot:
+    build: .
+    depends_on:
+      - db
+    env_file: .env
+    restart: unless-stopped
+
+volumes:
+  pgdata:
