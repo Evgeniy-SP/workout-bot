@@ -240,7 +240,10 @@ async def cb_open_exercise(callback: CallbackQuery, session: AsyncSession, state
 
 @router.callback_query(F.data.startswith("tr_save_planned:"))
 async def cb_save_planned(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+    # 1. СРАЗУ отвечаем Telegram, чтобы убрать часики с кнопки
+    await callback.answer("✅ Сохранено")
     await state.clear()
+
     _, sess_str, ex_str = callback.data.split(":")
     session_id = int(sess_str)
     ex_id = int(ex_str)
@@ -248,7 +251,7 @@ async def cb_save_planned(callback: CallbackQuery, session: AsyncSession, state:
     ws = await session.get(WorkoutSession, session_id)
     ex = await session.get(Exercise, ex_id)
     if not ws or not ex:
-        return await callback.answer("Не найдено", show_alert=True)
+        return
 
     sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
     set_num = _next_set_num(sets)
@@ -270,11 +273,12 @@ async def cb_save_planned(callback: CallbackQuery, session: AsyncSession, state:
     session.add(new_set)
     await session.commit()
 
-    # Если упражнение завершено — вернуть к списку
+    # Собираем обновлённый список подходов
     all_sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
     done = sum(1 for s in all_sets if s.completed)
     plan = ex.sets or 1 if ex.kind == "strength" else 1
 
+    # 2. Теперь спокойно обновляем сообщение (без вызова других хэндлеров)
     if done >= plan:
         if ex.kind == "strength":
             completed_now = [s for s in all_sets if s.completed]
@@ -284,15 +288,22 @@ async def cb_save_planned(callback: CallbackQuery, session: AsyncSession, state:
                 f"✅ {ex.name} готово\n\n" + text, reply_markup=kb
             )
         else:
-            # Кардио: показываем экран «выполнено» с возможностью изменить время
-            result_screen = await render_approach_screen(session, session_id,
-                                                         ex.id)
+            result_screen = await render_approach_screen(session, session_id, ex.id)
             if result_screen:
                 text, kb = result_screen
                 await callback.message.edit_text(text, reply_markup=kb)
             else:
                 text, kb = await _render_list(session, session_id, ws.user_id)
                 await callback.message.edit_text(text, reply_markup=kb)
+    else:
+        # Показываем следующий подход
+        result = await render_approach_screen(session, session_id, ex_id)
+        if result is None:
+            text, kb = await _render_list(session, session_id, ws.user_id)
+            await callback.message.edit_text(text, reply_markup=kb)
+        else:
+            text, kb = result
+            await callback.message.edit_text(text, reply_markup=kb)
 
 
 # ═══════════════════════════════════════════════════════════
