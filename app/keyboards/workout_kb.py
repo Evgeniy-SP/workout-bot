@@ -29,6 +29,7 @@ def workout_card_kb(wt_id: int,
         kb.button(text="▶️ Начать тренировку",
                   callback_data=f"tr_start:{wt_id}")
     kb.button(text="👀 Упражнения", callback_data=f"wt_ex:{wt_id}")
+    kb.button(text="📦 Архив упражнений", callback_data=f"ex_arch_menu:{wt_id}")
     kb.button(text="✏️ Переименовать", callback_data=f"wt_ren:{wt_id}")
     kb.button(text="🗑 Удалить тренировку", callback_data=f"wt_del:{wt_id}")
     kb.button(text="⬅️ К списку", callback_data="wt_list")
@@ -237,4 +238,40 @@ def after_finish_kb() -> InlineKeyboardMarkup:
     """Кнопки после завершения тренировки."""
     kb = InlineKeyboardBuilder()
     kb.button(text="🏋️ В меню тренировок", callback_data="wt_list")
+    return kb.as_markup()
+
+
+def archive_list_kb(grouped_exercises: list[tuple[Exercise, int]],
+                    wt_id: int) -> InlineKeyboardMarkup:
+    """Список сгруппированных архивных упражнений.
+    grouped_exercises: список кортежей (представитель, кол-во дублей)
+    """
+    kb = InlineKeyboardBuilder()
+    for ex, count in grouped_exercises:
+        if ex.kind == "strength":
+            weight = f" · {ex.weight_kg:g}кг" if ex.weight_kg else ""
+            text = f"📦 {ex.name} ({ex.sets}×{ex.reps}{weight})"
+        else:
+            text = f"📦 {ex.name} (кардио)"
+
+        if count > 1:
+            text += f" [x{count}]"
+
+        kb.button(text=text, callback_data=f"ex_arch_view:{ex.id}")
+
+    kb.button(text="⬅️ В меню тренировки", callback_data=f"wt:{wt_id}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def archive_card_kb(ex: Exercise, dup_count: int = 1) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    if dup_count > 1:
+        kb.button(text="🔗 Объединить и восстановить",
+                  callback_data=f"ex_restore_merge:{ex.id}")
+    else:
+        kb.button(text="🔄 Восстановить", callback_data=f"ex_restore:{ex.id}")
+    kb.button(text="⬅️ К архиву",
+              callback_data=f"ex_arch_menu:{ex.workout_type_id}")
+    kb.adjust(1)
     return kb.as_markup()

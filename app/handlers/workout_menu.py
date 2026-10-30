@@ -3,7 +3,7 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -363,3 +363,168 @@ async def cb_workout_delete_cancel(callback: CallbackQuery, session: AsyncSessio
         render_workout_card(wt), reply_markup=workout_card_kb(wt.id)
     )
     await callback.answer("Отменено")
+
+
+# ═══════════════════════════════════════════════════════════
+#  Архив упражнений
+# ═══════════════════════════════════════════════════════════
+
+@router.callback_query(F.data.startswith("ex_arch_menu:"))
+async def cb_archive_menu(callback: CallbackQuery, session: AsyncSession):
+    from app.keyboards.workout_kb import archive_list_kb
+    wt_id = int(callback.data.split(":")[1])
+
+    result = await session.execute(
+        select(Exercise)
+        .where(Exercise.workout_type_id == wt_id, Exercise.is_archived == True)
+        .order_by(Exercise.sort_order)
+    )
+    archived = list(result.scalars())
+
+    if not archived:
+        return await callback.answer("В архиве пока пусто.", show_alert=True)
+
+    # Группируем по имени (без учета регистра)
+    grouped = {}
+    for ex in archived:
+        key = ex.name.lower()
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(ex)
+
+    # Создаем список: (представитель, количество)
+    grouped_list = [(exs[0], len(exs)) for exs in grouped.values()]
+
+    await callback.message.edit_text(
+        "📦 <b>Архив упражнений</b>\n\n"
+        "Если в архиве есть дубликаты (например, несколько «Жимов»), "
+        "они объединены в одну запись. При восстановлении их история склеится в одно упражнение.\n\n"
+        "Выбери упражнение:",
+        reply_markup=archive_list_kb(grouped_list, wt_id)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ex_arch_view:"))
+async def cb_archive_view(callback: CallbackQuery, session: AsyncSession):
+    from app.keyboards.workout_kb import archive_card_kb
+    ex_id = int(callback.data.split(":")[1])
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    # Считаем дубликаты по имени
+    result = await session.execute(
+        select(func.count())
+        .select_from(Exercise)
+        .where(
+            Exercise.workout_type_id == ex.workout_type_id,
+            Exercise.is_archived == True,
+            func.lower(Exercise.name) == ex.name.lower()
+        )
+    )
+    dup_count = result.scalar() or 1
+
+    text = f"📦 Упражнение <b>{ex.name}</b> в архиве.\n\n"
+    if dup_count > 1:
+        text += f"⚠️ Найдено <b>{dup_count}</b> архивных записей с этим названием.\n"
+        text += "При восстановлении их история будет объединена в одно упражнение.\n\n"
+    else:
+        text += "Его параметры и история сохранены.\n\n"
+
+    text += "Восстановить его в тренировку?"
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=archive_card_kb(ex, dup_count)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ex_restore:"))
+async def cb_restore_exercise(callback: CallbackQuery, session: AsyncSession):
+    ex_id = int(callback.data.split(":")[1])
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    # Снимаем флаг архивации
+    ex.is_archived = False
+    await session.commit()
+
+    await callback.message.edit_text(
+        f"✅ Упражнение <b>{ex.name}</b> восстановлено!\n\n"
+        "Оно снова появилось в списке упражнений вместе со всей историей.",
+        reply_markup=workout_card_kb(ex.workout_type_id)
+    )
+    await callback.answer("Восстановлено")
+
+
+@router.callback_query(F.data.startswith("ex_restore_merge:"))
+async def cb_restore_merge(callback: CallbackQuery, session: AsyncSession):
+    ex_id = int(callback.data.split(":")[1])
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    name = ex.name
+    wt_id = ex.workout_type_id
+
+    # Ищем все архивные записи с таким же именем
+    result = await session.execute(
+        select(Exercise).where(
+            Exercise.workout_type_id == wt_id,
+            Exercise.is_archived == True,
+            func.lower(Exercise.name) == name.lower()
+        )
+    )
+    archived_exs = list(result.scalars())
+
+    if not archived_exs:
+        return await callback.answer("Ошибка: запись не найдена в архиве",
+                                     show_alert=True)
+
+    # Проверяем, есть ли уже активное упражнение с таким именем
+    result = await session.execute(
+        select(Exercise).where(
+            Exercise.workout_type_id == wt_id,
+            Exercise.is_archived == False,
+            func.lower(Exercise.name) == name.lower()
+        )
+    )
+    active_ex = result.scalars().first()
+
+    if active_ex:
+        # Если активное есть, сливаем все архивные в него
+        target_id = active_ex.id
+        for e in archived_exs:
+            await session.execute(
+                update(SessionSet)
+                .where(SessionSet.exercise_id == e.id)
+                .values(exercise_id=target_id)
+            )
+            await session.delete(e)
+        msg = f"✅ История ({len(archived_exs)} шт.) объединена с активным упражнением <b>{name}</b>!"
+    else:
+        # Если активного нет, берем первое архивное как основное
+        target_ex = archived_exs[0]
+        target_ex.is_archived = False
+        target_id = target_ex.id
+
+        # Остальные удаляем, перенося их подходы
+        for e in archived_exs[1:]:
+            await session.execute(
+                update(SessionSet)
+                .where(SessionSet.exercise_id == e.id)
+                .values(exercise_id=target_id)
+            )
+            await session.delete(e)
+        msg = f"✅ Упражнение <b>{name}</b> восстановлено (объединено {len(archived_exs)} записей)!"
+
+    await session.commit()
+
+    await callback.message.edit_text(
+        msg,
+        reply_markup=workout_card_kb(wt_id)
+    )
+    await callback.answer("Восстановлено")
