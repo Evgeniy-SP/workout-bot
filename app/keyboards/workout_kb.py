@@ -3,7 +3,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.db.models import Exercise, WorkoutType
-from app.utils import format_duration
+from app.utils import format_weight, format_duration
 
 
 def workouts_list_kb(workouts: list[WorkoutType],
@@ -42,7 +42,7 @@ def exercises_list_kb(exercises: list[Exercise], wt_id: int) -> InlineKeyboardMa
     for ex in exercises:
         opt = " (опц.)" if ex.is_optional else ""
         if ex.kind == "strength":
-            weight = f" · {ex.weight_kg:g}кг" if ex.weight_kg else ""
+            weight = f" · {format_weight(ex.weight_kg)}" if ex.weight_kg else ""
             text = f"{ex.name}{opt} · {ex.sets}×{ex.reps}{weight}"
         else:
             text = f"{ex.name}{opt} · {format_duration(ex.duration_seconds)}"
@@ -60,7 +60,7 @@ def exercise_card_kb(ex: Exercise) -> InlineKeyboardMarkup:
     if ex.kind == "strength":
         kb.button(text=f"🔢 Подходы: {ex.sets}", callback_data=f"ex_edit_sets:{ex.id}")
         kb.button(text=f"🔁 Повторения: {ex.reps}", callback_data=f"ex_edit_reps:{ex.id}")
-        weight_text = f"{ex.weight_kg:g} кг" if ex.weight_kg else "—"
+        weight_text = format_weight(ex.weight_kg)
         kb.button(text=f"⚖️ Вес: {weight_text}", callback_data=f"ex_edit_weight:{ex.id}")
     else:
         kb.button(
@@ -150,7 +150,7 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
     kb = InlineKeyboardBuilder()
     if ex.kind == "strength":
         weight = planned_weight if planned_weight else None
-        weight_text = f"{weight:g} кг" if weight else "без веса"
+        weight_text = format_weight(weight)
         kb.button(
             text=f"✅ Как планировал: {planned_reps} × {weight_text}",
             callback_data=f"tr_save_planned:{session_id}:{ex.id}",
@@ -204,7 +204,7 @@ def strength_summary_kb(session_id: int, ex: Exercise, sets: list) -> InlineKeyb
     """Экран итогов силового: подходы кнопками + добавить + к списку."""
     kb = InlineKeyboardBuilder()
     for s in sets:
-        weight_text = f"{s.weight_kg:g}кг" if s.weight_kg else "—"
+        weight_text = format_weight(s.weight_kg)
         kb.button(
             text=f"✏️ {s.set_number}. {s.reps}×{weight_text}",
             callback_data=f"tr_edit_set:{session_id}:{s.id}",
@@ -249,7 +249,7 @@ def archive_list_kb(grouped_exercises: list[tuple[Exercise, int]],
     kb = InlineKeyboardBuilder()
     for ex, count in grouped_exercises:
         if ex.kind == "strength":
-            weight = f" · {ex.weight_kg:g}кг" if ex.weight_kg else ""
+            weight = f" · {format_weight(ex.weight_kg)}" if ex.weight_kg else ""
             text = f"📦 {ex.name} ({ex.sets}×{ex.reps}{weight})"
         else:
             text = f"📦 {ex.name} (кардио)"

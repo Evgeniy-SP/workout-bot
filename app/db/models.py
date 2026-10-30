@@ -67,7 +67,7 @@ class Exercise(Base):
 
     sets: Mapped[int | None] = mapped_column(Integer)
     reps: Mapped[int | None] = mapped_column(Integer)
-    weight_kg: Mapped[float | None] = mapped_column(Float)
+    weight_kg: Mapped[str | None] = mapped_column(String(32))
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
 
     is_optional: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -111,7 +111,7 @@ class SessionSet(Base):
     )
     set_number: Mapped[int] = mapped_column(Integer)
     reps: Mapped[int | None] = mapped_column(Integer)
-    weight_kg: Mapped[float | None] = mapped_column(Float)
+    weight_kg: Mapped[str | None] = mapped_column(String(32))
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
 

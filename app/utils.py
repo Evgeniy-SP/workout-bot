@@ -50,3 +50,15 @@ def fmt_msk_date(dt: datetime) -> str:
 def fmt_msk_datetime(dt: datetime) -> str:
     """Дата и время в формате ДД.ММ.ГГГГ ЧЧ:ММ по Москве."""
     return to_msk(dt).strftime("%d.%m.%Y %H:%M")
+
+
+def format_weight(weight: str | None) -> str:
+    """Красиво выводит вес: добавляет 'кг' если это число, или оставляет текст."""
+    if not weight:
+        return "без веса"
+    try:
+        float(weight)  # проверяем, число ли это
+        return f"{weight} кг"
+    except ValueError:
+        return weight  # если текст (например, "Своё тело"), возвращаем как есть
+

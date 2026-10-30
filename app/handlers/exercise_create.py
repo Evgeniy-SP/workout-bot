@@ -111,30 +111,26 @@ async def add_reps(message: Message, state: FSMContext):
     await state.update_data(reps=int(text))
     await state.set_state(WorkoutCreate.adding_exercise_weight)
     await message.answer(
-        "Вес в кг (например <code>12.5</code>).\n"
-        "Или <code>-</code> / <code>0</code> — без веса:",
-        reply_markup=cancel_kb()
+        "Введи вес (например <code>12.5</code>) или текст "
+        "(например <code>Своё тело</code>, <code>Резинка</code>).\n"
+        "Или отправь <code>-</code>, чтобы оставить без веса:",
+        reply_markup=cancel_kb(),
     )
 
 
 @router.message(WorkoutCreate.adding_exercise_weight)
-async def add_weight(message: Message, state: FSMContext, session: AsyncSession):
-    text = message.text.strip().replace(",", ".")
+async def add_weight(message: Message, state: FSMContext,
+                     session: AsyncSession):
+    text = message.text.strip()
+
+    # "-" или "0" -> без веса
     if text in {"-", "0", "0.0", "нет"}:
         weight = None
     else:
-        try:
-            weight = float(text)
-        except ValueError:
-            return await message.answer(
-                "Нужно число (например 12.5) или «-». Попробуй ещё:",
-                reply_markup=cancel_kb()
-            )
-        if weight < 0:
-            return await message.answer(
-                "Вес не может быть отрицательным. Попробуй ещё:",
-                reply_markup=cancel_kb()
-            )
+        # Принимаем любой текст!
+        weight = text.replace(",",
+                              ".")  # на всякий случай меняем запятую на точку
+
     await state.update_data(weight=weight)
     await _finish(message, state, session)
 

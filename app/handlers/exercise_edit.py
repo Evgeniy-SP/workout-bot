@@ -13,7 +13,7 @@ from app.db.models import Exercise, WorkoutType
 from app.keyboards.workout_kb import cancel_kb, exercise_card_kb, workout_card_kb
 from app.render import render_exercise_card, render_workout_card
 from app.states import WorkoutEdit
-from app.utils import parse_minutes_to_seconds
+from app.utils import format_weight, parse_minutes_to_seconds
 
 router = Router()
 
@@ -343,47 +343,34 @@ async def edit_weight_start(callback: CallbackQuery, state: FSMContext, session:
     if not ex:
         return await callback.answer("Не найдено", show_alert=True)
 
-    current = f"{ex.weight_kg:g} кг" if ex.weight_kg else "без веса"
+    current = format_weight(ex.weight_kg)
     await state.update_data(ex_id=ex_id, return_to="ex_card")
     await state.set_state(WorkoutEdit.editing_exercise_weight)
     await callback.message.edit_text(
         f"⚖️ Текущий вес: <b>{current}</b>\n\n"
-        "Введи новый вес в кг (например <code>12.5</code>).\n"
-        "Или <code>0</code> / <code>-</code>, чтобы убрать вес:",
-        reply_markup=cancel_kb()
+        "Введи новый вес (например <code>12.5</code>) или текст "
+        "(например <code>Своё тело</code>, <code>Резинка</code>).\n"
+        "Или отправь <code>-</code>, чтобы убрать вес совсем:",
+        reply_markup=cancel_kb(),
     )
     await callback.answer()
 
 
 @router.message(WorkoutEdit.editing_exercise_weight)
-async def edit_weight_save(message: Message, state: FSMContext, session: AsyncSession):
-    text = message.text.strip().replace(",", ".")
+async def edit_weight_save(message: Message, state: FSMContext,
+                           session: AsyncSession):
+    text = message.text.strip()
 
-    # «-» или «0» → без веса
     if text in {"-", "0", "0.0", "нет"}:
         weight = None
     else:
-        try:
-            weight = float(text)
-        except ValueError:
-            return await message.answer(
-                "Нужно число (например 12.5) или «0»/«-». Попробуй ещё:",
-                reply_markup=cancel_kb()
-            )
-        if weight < 0:
-            return await message.answer(
-                "Вес не может быть отрицательным. Попробуй ещё:",
-                reply_markup=cancel_kb()
-            )
+        weight = text.replace(",", ".")
 
     data = await state.get_data()
     ex = await session.get(Exercise, data["ex_id"])
     if not ex:
         await state.clear()
-        return await message.answer(
-            "Упражнение не найдено.",
-            reply_markup=cancel_kb()
-        )
+        return await message.answer("Упражнение не найдено.")
 
     ex.weight_kg = weight
     await session.commit()

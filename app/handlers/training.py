@@ -24,7 +24,7 @@ from app.render import (
     render_approach, render_strength_summary, render_training_list,
 )
 from app.states import TrainingFSM
-from app.utils import format_duration, parse_minutes_to_seconds
+from app.utils import format_duration, format_weight, parse_minutes_to_seconds
 
 router = Router()
 
@@ -399,7 +399,7 @@ async def cb_edit_set(callback: CallbackQuery, session: AsyncSession, state: FSM
     if not ex:
         return await callback.answer("Упражнение не найдено", show_alert=True)
 
-    weight_text = f"{target.weight_kg:g} кг" if target.weight_kg else "без веса"
+    weight_text = format_weight(target.weight_kg)
 
     await state.update_data(
         session_id=session_id,
@@ -463,41 +463,29 @@ async def fsm_enter_reps(message: Message, state: FSMContext, session: AsyncSess
     ws = await session.get(WorkoutSession, data["session_id"])
     last_set = await get_last_completed_set(session, ws.user_id, data["ex_id"])
     suggested = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
-    suggestion = f"{suggested:g}" if suggested else "без веса"
+    suggestion = format_weight(suggested) if suggested else "без веса"
     await message.answer(
-        f"Сколько весил снаряд (кг)?\n"
-        f"<i>По умолчанию: {suggestion}</i>\n"
-        "Введи число, «-» для «без веса»:",
+        f"Сколько весил снаряд?\n"
+        f"<i>По умолчанию: {suggestion}</i>\n\n"
+        "Введи число (например <code>15</code>) или текст (например <code>Своё тело</code>).\n"
+        "Или отправь <code>-</code>, чтобы без веса:",
         reply_markup=cancel_kb(),
     )
 
-@router.message(TrainingFSM.entering_weight)
-async def fsm_enter_weight(message: Message, state: FSMContext, session: AsyncSession):
-    data = await state.get_data()
-    ex = await session.get(Exercise, data["ex_id"])
-    ws = await session.get(WorkoutSession, data["session_id"])
-    last_set = await get_last_completed_set(session, ws.user_id, data["ex_id"])
-    suggested = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
 
-    text = message.text.strip().replace(",", ".")
+@router.message(TrainingFSM.entering_weight)
+async def fsm_enter_weight(message: Message, state: FSMContext,
+                           session: AsyncSession):
+    data = await state.get_data()
+    text = message.text.strip()
+
     if text in {"-", "0", "0.0", "нет"}:
         weight = None
     else:
-        try:
-            weight = float(text)
-        except ValueError:
-            return await message.answer(
-                "Нужно число или «-». Попробуй ещё:",
-                reply_markup=cancel_kb(),
-            )
-        if weight < 0:
-            return await message.answer(
-                "Вес не может быть отрицательным. Попробуй ещё:",
-                reply_markup=cancel_kb(),
-            )
+        weight = text.replace(",", ".")
 
-    # Сохраняем подход
-    await _save_custom_set(message, state, session, data, data.get("custom_reps"), weight)
+    await _save_custom_set(message, state, session, data,
+                           data.get("custom_reps"), weight)
 
 
 @router.message(TrainingFSM.entering_duration)
@@ -553,8 +541,8 @@ async def _save_custom_set(message: Message, state: FSMContext, session: AsyncSe
             if old_reps != reps:
                 parts.append(f"повторы: <b>{old_reps} → {reps}</b>")
             if old_weight != weight:
-                ow = f"{old_weight:g} кг" if old_weight else "—"
-                nw = f"{weight:g} кг" if weight else "—"
+                ow = format_weight(old_weight)
+                nw = format_weight(weight)
                 parts.append(f"вес: <b>{ow} → {nw}</b>")
         else:
             if old_duration != duration:

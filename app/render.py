@@ -1,7 +1,7 @@
 """Формирование текста карточек."""
 from datetime import datetime
 from app.db.models import Exercise, WorkoutType
-from app.utils import format_duration
+from app.utils import format_duration, format_weight
 
 
 def render_workout_card(wt: WorkoutType) -> str:
@@ -16,7 +16,7 @@ def render_exercise_card(ex: Exercise) -> str:
     opt = " <i>(опциональное)</i>" if ex.is_optional else ""
 
     if ex.kind == "strength":
-        weight = f"{ex.weight_kg:g} кг" if ex.weight_kg else "без веса"
+        weight = format_weight(ex.weight_kg)
         return (
             f"<b>{ex.name}</b>{opt}\n\n"
             f"🔢 Подходы: <b>{ex.sets}</b>\n"
@@ -93,10 +93,10 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
 
     if ex.kind == "strength":
         weight = planned_weight if planned_weight else (last_weight if last_weight else None)
-        weight_text = f"{weight:g} кг" if weight else "без веса"
+        weight_text = format_weight(weight)
         hint = ""
         if last_weight and last_weight != planned_weight:
-            hint = f"\n<i>В прошлый раз: {last_weight:g} кг</i>"
+            hint = f"\n<i>В прошлый раз: {format_weight(last_weight)}</i>"
         return (
             f"<b>{ex.name}</b>\n\n"
             f"Подход <b>{set_num}</b> из {ex.sets}\n"
@@ -127,8 +127,13 @@ def render_strength_summary(ex: Exercise, sets: list) -> str:
     total_volume = 0.0
     for s in sets:
         reps = s.reps or 0
-        weight = s.weight_kg or 0
-        weight_text = f"{s.weight_kg:g} кг" if s.weight_kg else "без веса"
+        # Безопасно парсим вес
+        try:
+            weight = float(s.weight_kg) if s.weight_kg else 0.0
+        except ValueError:
+            weight = 0.0  # если там текст, тоннаж не считаем
+
+        weight_text = format_weight(s.weight_kg)
         lines.append(f"{s.set_number}. {reps} × {weight_text}")
         total_reps += reps
         total_volume += reps * weight
