@@ -83,30 +83,45 @@ def render_training_list(wt: WorkoutType, exercises: list[Exercise],
 
 
 def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
-                    planned_weight: float | None, planned_duration: int | None,
-                    last_weight: float | None = None) -> str:
-    """Текст экрана «сейчас делаем подход».
-
-    Для силового показывает план: подход N из M, reps × weight.
-    Если есть history_weight — подсказка «в прошлый раз: X кг».
-    """
+                    planned_weight: str | None, planned_duration: int | None,
+                    last_reps: int | None = None,
+                    last_weight: str | None = None,
+                    last_note: str | None = None,
+                    last_duration: int | None = None) -> str:  # <--- НОВЫЙ ПАРАМЕТР
+    from app.utils import format_duration
 
     if ex.kind == "strength":
-        weight = planned_weight if planned_weight else (last_weight if last_weight else None)
-        weight_text = format_weight(weight)
-        hint = ""
-        if last_weight and last_weight != planned_weight:
-            hint = f"\n<i>В прошлый раз: {format_weight(last_weight)}</i>"
+        if last_reps or last_weight:
+            display_reps = last_reps if last_reps else planned_reps
+            display_weight = format_weight(
+                last_weight if last_weight else planned_weight)
+            header = f"Прошлый раз: <b>{display_reps} × {display_weight}</b>"
+        else:
+            display_reps = planned_reps
+            display_weight = format_weight(planned_weight)
+            header = f"План: <b>{display_reps} × {display_weight}</b>"
+
+        if last_note:
+            header += f"\n📝 <i>Прошлая заметка: {last_note}</i>"
+
         return (
             f"<b>{ex.name}</b>\n\n"
             f"Подход <b>{set_num}</b> из {ex.sets}\n"
-            f"План: <b>{planned_reps}</b> повторов × {weight_text}{hint}"
+            f"{header}"
         )
 
-    # кардио
+    # ─── КАРДИО ───
+    # Если есть прошлое время, показываем его, иначе — план
+    if last_duration:
+        duration_header = f"Прошлый раз: <b>{format_duration(last_duration)}</b>"
+    else:
+        duration_header = f"План: <b>{format_duration(planned_duration)}</b>"
+
+    note_text = f"\n📝 <i>Прошлая заметка: {last_note}</i>" if last_note else ""
+
     return (
         f"<b>{ex.name}</b>\n\n"
-        f"План: <b>{format_duration(planned_duration)}</b>"
+        f"{duration_header}{note_text}"
     )
 
 

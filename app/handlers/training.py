@@ -14,14 +14,14 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import Exercise, SessionExerciseNote, SessionSet, User, WorkoutSession, WorkoutType
 from app.db.queries import (
-    get_active_session, get_last_completed_set, get_sets_grouped,
+    get_active_session, get_last_completed_set, get_last_note_for_exercise, get_sets_grouped,
 )
 from app.keyboards.workout_kb import (
-    approach_kb, cancel_kb, finish_confirm_kb, strength_summary_kb,
+    approach_kb, cancel_kb, finish_confirm_kb,
     training_list_kb, workouts_list_kb, training_remove_menu_kb,
 )
 from app.render import (
-    render_approach, render_strength_summary, render_training_list,
+    render_approach,  render_training_list,
 )
 from app.states import TrainingFSM
 from app.utils import format_duration, format_weight, parse_minutes_to_seconds
@@ -98,7 +98,8 @@ async def render_approach_screen(
         can_remove = not completed
         if completed:
             s = completed[0]
-            duration = format_duration(s.duration_seconds) if s.duration_seconds else "—"
+            duration = format_duration(
+                s.duration_seconds) if s.duration_seconds else "—"
             text = (
                 f"<b>{ex.name}</b>\n\n"
                 f"✅ Выполнено: <b>{duration}</b>\n\n"
@@ -106,11 +107,24 @@ async def render_approach_screen(
             )
             kb = cardio_done_kb(session_id, ex, can_remove=can_remove)
         else:
-            text = (
-                f"<b>{ex.name}</b>\n\n"
-                f"План: <b>{format_duration(ex.duration_seconds)}</b>"
+            # Получаем заметку и прошлое время из истории
+            last_note = await get_last_note_for_exercise(session, ws.user_id,
+                                                         ex_id, session_id)
+
+            last_set = await get_last_completed_set(session, ws.user_id, ex_id)
+            last_duration = last_set.duration_seconds if last_set else None
+
+            text = render_approach(
+                ex, 1, None, None, ex.duration_seconds,
+                last_note=last_note,
+                last_duration=last_duration,  # <--- ПЕРЕДАЕМ СЮДА
             )
-            kb = approach_kb(session_id, ex, 1, None, None, ex.duration_seconds, can_remove=can_remove)
+            kb = approach_kb(
+                session_id, ex, 1, None, None,
+                planned_duration=last_duration or ex.duration_seconds,
+                can_remove=can_remove,
+                use_history=bool(last_duration)
+            )
 
     # ─── СИЛОВОЕ ───
     else:
@@ -120,20 +134,33 @@ async def render_approach_screen(
             text = render_strength_summary(ex, completed)
             kb = strength_summary_kb(session_id, ex, completed)
         else:
-            # ВАЖНО: и здесь нет return!
             set_num = len(completed) + 1
             last_set = await get_last_completed_set(session, ws.user_id, ex_id)
-            planned_weight = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
-            planned_reps = last_set.reps if last_set and last_set.reps else ex.reps
+
+            # План из шаблона
+            plan_weight = ex.weight_kg
+            plan_reps = ex.reps
+
+            # История
+            last_weight = last_set.weight_kg if last_set else None
+            last_reps = last_set.reps if last_set else None
+            last_note = await get_last_note_for_exercise(session, ws.user_id, ex_id, session_id)
+            # Для кнопки (если есть история — берем её, иначе план)
+            use_history = bool(last_set)
+            action_weight = last_weight if last_weight else plan_weight
+            action_reps = last_reps if last_reps else plan_reps
 
             can_remove = not sets
             text = render_approach(
-                ex, set_num, planned_reps, planned_weight, ex.duration_seconds,
-                last_weight=last_set.weight_kg if last_set else None,
+                ex, set_num, plan_reps, plan_weight, ex.duration_seconds,
+                last_reps=last_reps,
+                last_weight=last_weight,
+                last_note=last_note,
             )
             kb = approach_kb(
-                session_id, ex, set_num, planned_reps, planned_weight,
+                session_id, ex, set_num, action_reps, action_weight,
                 ex.duration_seconds, can_remove=can_remove,
+                use_history=use_history
             )
 
     # ─── ДОБАВЛЯЕМ ЗАМЕТКУ (теперь она добавится и к силовым, и к кардио) ───
@@ -269,13 +296,19 @@ async def cb_save_planned(callback: CallbackQuery, session: AsyncSession, state:
     planned_weight = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
     planned_reps = last_set.reps if last_set and last_set.reps else ex.reps
 
+    # Если это кардио, берем время из истории, иначе из шаблона
+    if ex.kind != "strength":
+        planned_duration = last_set.duration_seconds if last_set and last_set.duration_seconds else ex.duration_seconds
+    else:
+        planned_duration = None
+
     new_set = SessionSet(
         session_id=session_id,
         exercise_id=ex_id,
         set_number=set_num,
         reps=planned_reps if ex.kind == "strength" else None,
         weight_kg=planned_weight if ex.kind == "strength" else None,
-        duration_seconds=ex.duration_seconds if ex.kind != "strength" else None,
+        duration_seconds=planned_duration,  # <--- ТЕПЕРЬ БЕРЕТСЯ ИЗ ИСТОРИИ
         completed=True,
     )
     session.add(new_set)

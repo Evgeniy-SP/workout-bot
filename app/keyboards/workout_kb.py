@@ -144,28 +144,40 @@ def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
 
 
 def approach_kb(session_id: int, ex: Exercise, set_num: int,
-                planned_reps: int | None, planned_weight: float | None,
+                planned_reps: int | None, planned_weight: str | None,
                 planned_duration: int | None,
-                can_remove: bool = False) -> InlineKeyboardMarkup:
+                can_remove: bool = False,
+                use_history: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if ex.kind == "strength":
-        weight = planned_weight if planned_weight else None
-        weight_text = format_weight(weight)
+        weight_text = format_weight(planned_weight)
+        # Если есть история, пишем "Как в прошлый раз", иначе "Как планировал"
+        btn_text = f"✅ Как в прошлый раз: {planned_reps} × {weight_text}" if use_history else f"✅ Как планировал: {planned_reps} × {weight_text}"
         kb.button(
-            text=f"✅ Как планировал: {planned_reps} × {weight_text}",
+            text=btn_text,
             callback_data=f"tr_save_planned:{session_id}:{ex.id}",
         )
         kb.button(text="✏️ Ввести фактически",
                   callback_data=f"tr_custom:{session_id}:{ex.id}")
     else:
-        kb.button(text="✅ Сделано",
-                  callback_data=f"tr_save_planned:{session_id}:{ex.id}")
-        kb.button(text="✏️ Ввести время",
+        from app.utils import format_duration
+        duration_text = format_duration(planned_duration)
+
+        # Если есть история, пишем "Как в прошлый раз", иначе "Как планировал"
+        btn_text = f"✅ Как в прошлый раз: {duration_text}" if use_history else f"✅ Как планировал: {duration_text}"
+
+        kb.button(
+            text=btn_text,
+            callback_data=f"tr_save_planned:{session_id}:{ex.id}",
+        )
+        kb.button(text="✏️ Ввести фактически",
                   callback_data=f"tr_custom:{session_id}:{ex.id}")
-    kb.button(text="📝 Заметка", callback_data=f"tr_note_ex:{session_id}:{ex.id}")
+
     if can_remove:
         kb.button(text="🗑 Убрать упражнение",
                   callback_data=f"tr_remove:{session_id}:{ex.id}")
+
+    kb.button(text="📝 Заметка", callback_data=f"tr_note_ex:{session_id}:{ex.id}")
     kb.button(text="⬅️ К списку упражнений",
               callback_data=f"tr_list:{session_id}")
     kb.adjust(1)

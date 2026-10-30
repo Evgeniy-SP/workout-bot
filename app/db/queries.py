@@ -7,7 +7,7 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import SessionSet, WorkoutSession
+from app.db.models import SessionSet, SessionExerciseNote, WorkoutSession
 
 
 async def get_active_session(session: AsyncSession, user_id: int) -> WorkoutSession | None:
@@ -50,6 +50,24 @@ async def get_last_completed_set(
             SessionSet.completed == True,
         )
         .order_by(SessionSet.id.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_last_note_for_exercise(
+    session: AsyncSession, user_id: int, exercise_id: int, current_session_id: int
+) -> str | None:
+    """Возвращает заметку из последней тренировки (исключая текущую)."""
+    result = await session.execute(
+        select(SessionExerciseNote.note)
+        .join(WorkoutSession, WorkoutSession.id == SessionExerciseNote.session_id)
+        .where(
+            WorkoutSession.user_id == user_id,
+            SessionExerciseNote.exercise_id == exercise_id,
+            SessionExerciseNote.session_id != current_session_id
+        )
+        .order_by(SessionExerciseNote.id.desc())
         .limit(1)
     )
     return result.scalar_one_or_none()
