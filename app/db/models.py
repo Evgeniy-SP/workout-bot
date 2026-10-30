@@ -116,3 +116,13 @@ class SessionSet(Base):
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
 
     session: Mapped["WorkoutSession"] = relationship(back_populates="sets")
+
+
+class SessionExerciseNote(Base):
+    """Заметка к конкретному упражнению в рамках одной тренировки."""
+    __tablename__ = "session_exercise_notes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("workout_sessions.id", ondelete="CASCADE"), index=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
+    note: Mapped[str] = mapped_column(Text)

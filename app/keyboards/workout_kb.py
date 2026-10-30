@@ -162,11 +162,10 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                   callback_data=f"tr_save_planned:{session_id}:{ex.id}")
         kb.button(text="✏️ Ввести время",
                   callback_data=f"tr_custom:{session_id}:{ex.id}")
-
+    kb.button(text="📝 Заметка", callback_data=f"tr_note_ex:{session_id}:{ex.id}")
     if can_remove:
         kb.button(text="🗑 Убрать упражнение",
                   callback_data=f"tr_remove:{session_id}:{ex.id}")
-
     kb.button(text="⬅️ К списку упражнений",
               callback_data=f"tr_list:{session_id}")
     kb.adjust(1)
@@ -192,6 +191,7 @@ def cardio_done_kb(session_id: int, ex: Exercise,
                    can_remove: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="✏️ Изменить время", callback_data=f"tr_custom:{session_id}:{ex.id}")
+    kb.button(text="📝 Заметка", callback_data=f"tr_note_ex:{session_id}:{ex.id}")
     if can_remove:
         kb.button(text="🗑 Убрать упражнение",
                   callback_data=f"tr_remove:{session_id}:{ex.id}")
@@ -209,6 +209,10 @@ def strength_summary_kb(session_id: int, ex: Exercise, sets: list) -> InlineKeyb
             text=f"✏️ {s.set_number}. {s.reps}×{weight_text}",
             callback_data=f"tr_edit_set:{session_id}:{s.id}",
         )
+    kb.button(
+        text="📝 Заметка",
+        callback_data=f"tr_note_ex:{session_id}:{ex.id}",
+    )
     kb.button(
         text="➕ Добавить подход",
         callback_data=f"tr_add_set:{session_id}:{ex.id}",
@@ -273,5 +277,15 @@ def archive_card_kb(ex: Exercise, dup_count: int = 1) -> InlineKeyboardMarkup:
         kb.button(text="🔄 Восстановить", callback_data=f"ex_restore:{ex.id}")
     kb.button(text="⬅️ К архиву",
               callback_data=f"ex_arch_menu:{ex.workout_type_id}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def note_edit_kb(session_id: int, ex_id: int, has_note: bool) -> InlineKeyboardMarkup:
+    """Клавиатура для экрана ввода заметки."""
+    kb = InlineKeyboardBuilder()
+    if has_note:
+        kb.button(text="🗑 Удалить заметку", callback_data=f"tr_note_del:{session_id}:{ex_id}")
+    kb.button(text="❌ Отмена", callback_data=f"tr_ex:{session_id}:{ex_id}")
     kb.adjust(1)
     return kb.as_markup()

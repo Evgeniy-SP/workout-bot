@@ -37,3 +37,4 @@ class TrainingFSM(StatesGroup):
     entering_reps = State()
     entering_weight = State()
     entering_duration = State()
+    entering_exercise_note = State()

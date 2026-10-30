@@ -8,11 +8,11 @@ from datetime import datetime, timezone
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Exercise, SessionSet, User, WorkoutSession, WorkoutType
+from app.db.models import Exercise, SessionExerciseNote, SessionSet, User, WorkoutSession, WorkoutType
 from app.db.queries import (
     get_active_session, get_last_completed_set, get_sets_grouped,
 )
@@ -79,12 +79,6 @@ def _next_set_num(sets: list[SessionSet]) -> int:
 async def render_approach_screen(
     session: AsyncSession, session_id: int, ex_id: int
 ):
-    """Готовит (текст, клавиатуру) для экрана подхода/итогов.
-
-    - Кардио: сделано — экран с временем, не сделано — «план».
-    - Силовое: не все подходы — экран очередного, все — экран итогов.
-    Возвращает None, только если упражнение/сессия недоступны.
-    """
     from app.keyboards.workout_kb import cardio_done_kb, strength_summary_kb
     from app.render import render_strength_summary
     from app.utils import format_duration
@@ -97,9 +91,11 @@ async def render_approach_screen(
     sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
     completed = [s for s in sets if s.completed]
 
+    text, kb = "", None
+
     # ─── КАРДИО ───
     if ex.kind != "strength":
-        can_remove = not completed  # можно убрать, если ещё не сделано
+        can_remove = not completed
         if completed:
             s = completed[0]
             duration = format_duration(s.duration_seconds) if s.duration_seconds else "—"
@@ -108,44 +104,50 @@ async def render_approach_screen(
                 f"✅ Выполнено: <b>{duration}</b>\n\n"
                 "Можно изменить время, если ошиблись."
             )
-            return text, cardio_done_kb(session_id, ex, can_remove=can_remove)
-        text = (
-            f"<b>{ex.name}</b>\n\n"
-            f"План: <b>{format_duration(ex.duration_seconds)}</b>"
-        )
-        kb = approach_kb(
-            session_id, ex, 1, None, None, ex.duration_seconds,
-            can_remove=can_remove,
-        )
-        return text, kb
+            kb = cardio_done_kb(session_id, ex, can_remove=can_remove)
+        else:
+            text = (
+                f"<b>{ex.name}</b>\n\n"
+                f"План: <b>{format_duration(ex.duration_seconds)}</b>"
+            )
+            kb = approach_kb(session_id, ex, 1, None, None, ex.duration_seconds, can_remove=can_remove)
 
     # ─── СИЛОВОЕ ───
-    plan = ex.sets or 0
+    else:
+        plan = ex.sets or 0
+        if plan > 0 and len(completed) >= plan:
+            # ВАЖНО: здесь нет return!
+            text = render_strength_summary(ex, completed)
+            kb = strength_summary_kb(session_id, ex, completed)
+        else:
+            # ВАЖНО: и здесь нет return!
+            set_num = len(completed) + 1
+            last_set = await get_last_completed_set(session, ws.user_id, ex_id)
+            planned_weight = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
+            planned_reps = last_set.reps if last_set and last_set.reps else ex.reps
 
-    # Все подходы сделаны — экран итогов
-    if plan > 0 and len(completed) >= plan:
-        text = render_strength_summary(ex, completed)
-        kb = strength_summary_kb(session_id, ex, completed)
-        return text, kb
+            can_remove = not sets
+            text = render_approach(
+                ex, set_num, planned_reps, planned_weight, ex.duration_seconds,
+                last_weight=last_set.weight_kg if last_set else None,
+            )
+            kb = approach_kb(
+                session_id, ex, set_num, planned_reps, planned_weight,
+                ex.duration_seconds, can_remove=can_remove,
+            )
 
-    # Иначе — очередной подход
-    set_num = len(completed) + 1
-    last_set = await get_last_completed_set(session, ws.user_id, ex_id)
-    planned_weight = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
-    planned_reps = last_set.reps if last_set and last_set.reps else ex.reps
-
-    # Кнопку «Убрать» показываем всегда, если в этой тренировке ещё не начинали.
-    # Логика «удалить или архивировать» — внутри cb_training_remove_ex.
-    can_remove = not sets
-
-    text = render_approach(
-        ex, set_num, planned_reps, planned_weight, ex.duration_seconds,
-        last_weight=last_set.weight_kg if last_set else None,
+    # ─── ДОБАВЛЯЕМ ЗАМЕТКУ (теперь она добавится и к силовым, и к кардио) ───
+    note_res = await session.execute(
+        select(SessionExerciseNote).where(
+            SessionExerciseNote.session_id == session_id,
+            SessionExerciseNote.exercise_id == ex_id
+        )
     )
-    kb = approach_kb(
-        session_id, ex, set_num, planned_reps, planned_weight,
-        ex.duration_seconds, can_remove=can_remove,
-    )
+    note_obj = note_res.scalar_one_or_none()
+    if note_obj:
+        text += f"\n\n📝 <i>{note_obj.note}</i>"
+
+    # Единственный return в функции
     return text, kb
 
 # ═══════════════════════════════════════════════════════════
@@ -286,21 +288,15 @@ async def cb_save_planned(callback: CallbackQuery, session: AsyncSession, state:
 
     # 2. Теперь спокойно обновляем сообщение (без вызова других хэндлеров)
     if done >= plan:
-        if ex.kind == "strength":
-            completed_now = [s for s in all_sets if s.completed]
-            text = render_strength_summary(ex, completed_now)
-            kb = strength_summary_kb(session_id, ex, completed_now)
+        result_screen = await render_approach_screen(session, session_id, ex.id)
+        if result_screen:
+            text, kb = result_screen
             await callback.message.edit_text(
                 f"✅ {ex.name} готово\n\n" + text, reply_markup=kb
             )
         else:
-            result_screen = await render_approach_screen(session, session_id, ex.id)
-            if result_screen:
-                text, kb = result_screen
-                await callback.message.edit_text(text, reply_markup=kb)
-            else:
-                text, kb = await _render_list(session, session_id, ws.user_id)
-                await callback.message.edit_text(text, reply_markup=kb)
+            text, kb = await _render_list(session, session_id, ws.user_id)
+            await callback.message.edit_text(text, reply_markup=kb)
     else:
         # Показываем следующий подход
         result = await render_approach_screen(session, session_id, ex_id)
@@ -559,11 +555,10 @@ async def _save_custom_set(message: Message, state: FSMContext, session: AsyncSe
 
         # Для силового — экран итогов упражнения
         if ex.kind == "strength":
-            sets_now = (await get_sets_grouped(session, session_id)).get(ex_id, [])
-            completed_now = [s for s in sets_now if s.completed]
-            text = render_strength_summary(ex, completed_now)
-            kb = strength_summary_kb(session_id, ex, completed_now)
-            await message.answer(change_text + "\n\n" + text, reply_markup=kb)
+            result_screen = await render_approach_screen(session, session_id, ex_id)
+            if result_screen:
+                text, kb = result_screen
+                await message.answer(change_text + "\n\n" + text, reply_markup=kb)
             return
 
         # Кардио — экран «выполнено» с возможностью изменить ещё раз
@@ -600,23 +595,14 @@ async def _save_custom_set(message: Message, state: FSMContext, session: AsyncSe
     await state.clear()
 
     if done >= plan:
-        # Всё сделано — экран итогов (для силового) / список (для кардио)
-        if ex.kind == "strength":
-            completed_now = [s for s in all_sets if s.completed]
-            text = render_strength_summary(ex, completed_now)
-            kb = strength_summary_kb(session_id, ex, completed_now)
+        result_screen = await render_approach_screen(session, session_id, ex.id)
+        if result_screen:
+            text, kb = result_screen
             await message.answer(f"✅ {ex.name} готово\n\n" + text, reply_markup=kb)
         else:
-            # Кардио: экран «выполнено» с возможностью изменить время
-            result_screen = await render_approach_screen(session, session_id,
-                                                         ex.id)
-            if result_screen:
-                text, kb = result_screen
-                await message.answer(text, reply_markup=kb)
-            else:
-                ws = await session.get(WorkoutSession, session_id)
-                text, kb = await _render_list(session, session_id, ws.user_id)
-                await message.answer(text, reply_markup=kb)
+            ws = await session.get(WorkoutSession, session_id)
+            text, kb = await _render_list(session, session_id, ws.user_id)
+            await message.answer(text, reply_markup=kb)
         return
 
     # Ещё не всё — показываем следующий подход (только для силового)
@@ -946,3 +932,94 @@ async def cb_training_remove_menu(callback: CallbackQuery, session: AsyncSession
         reply_markup=training_remove_menu_kb(session_id, removable),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tr_note_ex:"))
+async def cb_note_ex_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+    from app.keyboards.workout_kb import note_edit_kb
+    _, sess_str, ex_str = callback.data.split(":")
+    session_id = int(sess_str)
+    ex_id = int(ex_str)
+
+    await state.clear()
+    await state.set_state(TrainingFSM.entering_exercise_note)
+    await state.update_data(session_id=session_id, ex_id=ex_id)
+
+    existing = await session.execute(
+        select(SessionExerciseNote).where(
+            SessionExerciseNote.session_id == session_id,
+            SessionExerciseNote.exercise_id == ex_id
+        )
+    )
+    note = existing.scalar_one_or_none()
+    current_text = f"\n\n<i>Текущая: {note.note}</i>" if note else ""
+
+    await callback.message.edit_text(
+        f"📝 <b>Заметка к упражнению</b>{current_text}\n\n"
+        "Напиши что-нибудь (например, «3-й подход не дожал»).",
+        reply_markup=note_edit_kb(session_id, ex_id, has_note=bool(note))
+    )
+    await callback.answer()
+
+
+@router.message(TrainingFSM.entering_exercise_note)
+async def fsm_note_ex_save(message: Message, state: FSMContext,
+                           session: AsyncSession):
+    data = await state.get_data()
+    session_id = data["session_id"]
+    ex_id = data["ex_id"]
+
+    # Удаляем старую заметку (если была)
+    await session.execute(
+        delete(SessionExerciseNote).where(
+            SessionExerciseNote.session_id == session_id,
+            SessionExerciseNote.exercise_id == ex_id
+        )
+    )
+
+    text = message.text.strip()
+    if text:  # сохраняем любой текст
+        session.add(SessionExerciseNote(
+            session_id=session_id,
+            exercise_id=ex_id,
+            note=text[:1000]
+        ))
+
+    await session.commit()
+    await state.clear()
+
+    ws = await session.get(WorkoutSession, session_id)
+    result = await render_approach_screen(session, session_id, ex_id)
+    if result:
+        msg_text, kb = result
+        await message.answer(f"✅ Заметка сохранена.\n\n{msg_text}",
+                             reply_markup=kb)
+    else:
+        text_screen, kb = await _render_list(session, session_id, ws.user_id)
+        await message.answer("✅ Заметка сохранена.\n\n" + text_screen,
+                             reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("tr_note_del:"))
+async def cb_note_ex_delete(callback: CallbackQuery, session: AsyncSession,
+                            state: FSMContext):
+    await state.clear()
+    _, sess_str, ex_str = callback.data.split(":")
+    session_id = int(sess_str)
+    ex_id = int(ex_str)
+
+    await session.execute(
+        delete(SessionExerciseNote).where(
+            SessionExerciseNote.session_id == session_id,
+            SessionExerciseNote.exercise_id == ex_id
+        )
+    )
+    await session.commit()
+
+    result = await render_approach_screen(session, session_id, ex_id)
+    if result:
+        text, kb = result
+        await callback.message.edit_text(f"🗑 Заметка удалена.\n\n{text}",
+                                         reply_markup=kb)
+
+    await callback.answer("Удалено")
