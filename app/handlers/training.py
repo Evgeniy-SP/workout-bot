@@ -59,9 +59,15 @@ async def _render_list(session: AsyncSession, session_id: int, user_id: int):
     """Собрать (текст, клавиатуру) для экрана активной тренировки."""
     ws = await session.get(WorkoutSession, session_id)
     wt = await _load_workout(session, ws.workout_type_id)
+
+    # Сортируем: сначала обязательные (is_optional=False), потом опциональные.
+    # Внутри групп сохраняется исходный порядок (sort_order).
+    exercises = sorted(wt.exercises,
+                       key=lambda e: (e.is_optional, e.sort_order))
+
     sets_by_ex = await get_sets_grouped(session, session_id)
-    text = render_training_list(wt, wt.exercises, sets_by_ex, ws.started_at)
-    kb = training_list_kb(wt.id, session_id, wt.exercises, sets_by_ex)
+    text = render_training_list(wt, exercises, sets_by_ex, ws.started_at)
+    kb = training_list_kb(wt.id, session_id, exercises, sets_by_ex)
     return text, kb
 
 
