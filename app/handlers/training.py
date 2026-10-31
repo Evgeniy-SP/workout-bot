@@ -871,17 +871,62 @@ async def cb_training_add_ex(callback: CallbackQuery, session: AsyncSession,
 # ═══════════════════════════════════════════════════════════
 
 @router.callback_query(F.data.startswith("tr_remove:"))
-async def cb_training_remove_ex(callback: CallbackQuery, session: AsyncSession):
-    """Убираем упражнение из шаблона.
-
-    - Нет истории → удалить физически
-    - Есть история → архивировать (скрыть из шаблона, история остаётся)
-
-    Работает из двух мест:
-    - карточка упражнения (callback без :menu)
-    - экран «Убрать упражнение» (callback с :menu)
-    """
+async def cb_training_remove_ask(callback: CallbackQuery, session: AsyncSession):
+    """Показываем подтверждение удаления упражнения из активной тренировки."""
     from sqlalchemy import func as sa_func
+    from app.keyboards.workout_kb import confirm_training_delete_kb
+
+    parts = callback.data.split(":")
+    session_id = int(parts[1])
+    ex_id = int(parts[2])
+    from_menu = len(parts) > 3 and parts[3] == "menu"
+    context = "menu" if from_menu else "card"
+
+    ws = await session.get(WorkoutSession, session_id)
+    ex = await session.get(Exercise, ex_id)
+    if not ws or not ex or ws.finished_at:
+        return await callback.answer("Недоступно", show_alert=True)
+
+    # Защита: если в этой тренировке уже начали — убирать нельзя
+    current_sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+    if current_sets:
+        return await callback.answer(
+            "По упражнению уже есть подходы в этой тренировке. "
+            "Используйте «⏭ Пропустить».",
+            show_alert=True,
+        )
+
+    # Проверяем историю
+    history_count = await session.scalar(
+        select(sa_func.count())
+        .select_from(SessionSet)
+        .where(SessionSet.exercise_id == ex_id)
+    ) or 0
+
+    if history_count > 0:
+        text = (
+            f"Убрать упражнение <b>{ex.name}</b> из шаблона?\n\n"
+            f"Упражнение выполнялось в <b>{history_count}</b> "
+            f"тренировк{'е' if history_count == 1 else 'ах'} — история сохранится.\n\n"
+            "📦 Упражнение скроется из шаблона."
+        )
+    else:
+        text = (
+            f"Удалить упражнение <b>{ex.name}</b>?\n\n"
+            "Истории нет — удалится полностью."
+        )
+
+    await callback.message.edit_text(
+        text, reply_markup=confirm_training_delete_kb(session_id, ex_id, context, history_count > 0)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tr_remove_yes:"))
+async def cb_training_remove_confirm(callback: CallbackQuery, session: AsyncSession):
+    """Выполняем удаление или архивацию после подтверждения."""
+    from sqlalchemy import func as sa_func
+    from app.keyboards.workout_kb import training_remove_menu_kb
 
     parts = callback.data.split(":")
     session_id = int(parts[1])
@@ -893,15 +938,6 @@ async def cb_training_remove_ex(callback: CallbackQuery, session: AsyncSession):
     if not ws or not ex or ws.finished_at:
         return await callback.answer("Недоступно", show_alert=True)
 
-    # Защита: если в этой тренировке уже начали — убирать нельзя, только пропустить
-    current_sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
-    if current_sets:
-        return await callback.answer(
-            "По упражнению уже есть подходы в этой тренировке. "
-            "Используйте «⏭ Пропустить».",
-            show_alert=True,
-        )
-
     name = ex.name
     history_count = await session.scalar(
         select(sa_func.count())
@@ -909,23 +945,20 @@ async def cb_training_remove_ex(callback: CallbackQuery, session: AsyncSession):
         .where(SessionSet.exercise_id == ex_id)
     ) or 0
 
+    # Логика удаления или архивации
     if history_count > 0:
-        # Архивируем — история сохраняется
         ex.is_archived = True
         await session.commit()
-        action = "📦 Убрано из шаблона (история сохранена)"
+        action = "📦 Убрано в архив (история сохранена)"
     else:
-        # Удаляем физически
         await session.delete(ex)
         await session.commit()
         action = "🗑 Удалено"
 
-    # ─── Возврат: в меню удаления или в список тренировки ───
+    # Возврат на нужный экран
     if from_menu:
         wt = await _load_workout(session, ws.workout_type_id)
         sets_by_ex = await get_sets_grouped(session, session_id)
-
-        # Пересобираем список «что ещё можно убрать» — все без подходов в текущей
         removable = [e for e in wt.exercises if not sets_by_ex.get(e.id)]
 
         if removable:

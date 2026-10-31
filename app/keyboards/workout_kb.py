@@ -78,9 +78,13 @@ def exercise_card_kb(ex: Exercise) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def confirm_delete_kb(ex_id: int) -> InlineKeyboardMarkup:
+def confirm_delete_kb(ex_id: int, has_history: bool = False) -> InlineKeyboardMarkup:
+    """Подтверждение удаления упражнения из справочника."""
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Да, удалить", callback_data=f"ex_del_yes:{ex_id}")
+    if has_history:
+        kb.button(text="📦 Убрать в архив", callback_data=f"ex_del_yes:{ex_id}")
+    else:
+        kb.button(text="✅ Да, удалить", callback_data=f"ex_del_yes:{ex_id}")
     kb.button(text="❌ Отмена", callback_data=f"ex:{ex_id}")
     kb.adjust(1)
     return kb.as_markup()
@@ -298,5 +302,25 @@ def note_edit_kb(session_id: int, ex_id: int, has_note: bool) -> InlineKeyboardM
     if has_note:
         kb.button(text="🗑 Удалить заметку", callback_data=f"tr_note_del:{session_id}:{ex_id}")
     kb.button(text="❌ Отмена", callback_data=f"tr_ex:{session_id}:{ex_id}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def confirm_training_delete_kb(session_id: int, ex_id: int, context: str,
+                               has_history: bool) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления упражнения из активной тренировки."""
+    kb = InlineKeyboardBuilder()
+    if has_history:
+        kb.button(text="📦 Убрать в архив",
+                  callback_data=f"tr_remove_yes:{session_id}:{ex_id}:{context}")
+    else:
+        kb.button(text="✅ Да, удалить",
+                  callback_data=f"tr_remove_yes:{session_id}:{ex_id}:{context}")
+
+    if context == "menu":
+        kb.button(text="❌ Отмена",
+                  callback_data=f"tr_remove_menu:{session_id}")
+    else:
+        kb.button(text="❌ Отмена", callback_data=f"tr_ex:{session_id}:{ex_id}")
     kb.adjust(1)
     return kb.as_markup()

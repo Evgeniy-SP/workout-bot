@@ -209,7 +209,7 @@ async def cb_delete_ask(callback: CallbackQuery, session: AsyncSession):
         )
 
     await callback.message.edit_text(
-        text, reply_markup=confirm_delete_kb(ex.id)
+        text, reply_markup=confirm_delete_kb(ex.id, has_history=(history_count > 0))
     )
     await callback.answer()
 
