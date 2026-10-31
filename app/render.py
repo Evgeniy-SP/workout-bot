@@ -111,9 +111,9 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
         )
 
     # ─── КАРДИО ───
-    # Если есть прошлое время, показываем его, иначе — план
+    # Заменили "Прошлый раз" на "Предыдущая тренировка"
     if last_duration:
-        duration_header = f"Прошлый раз: <b>{format_duration(last_duration)}</b>"
+        duration_header = f"Предыдущая тренировка: <b>{format_duration(last_duration)}</b>"
     else:
         duration_header = f"План: <b>{format_duration(planned_duration)}</b>"
 

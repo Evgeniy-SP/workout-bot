@@ -293,7 +293,7 @@ async def cb_workout_delete_ask(callback: CallbackQuery, session: AsyncSession):
 
 @router.callback_query(F.data.startswith("wt_archive:"))
 async def cb_workout_archive(callback: CallbackQuery, session: AsyncSession):
-    """Помечаем is_archived=True. Строка в БД остаётся, история сохраняется."""
+    """Архивация: скрываем тренировку и убиваем активную сессию, если она была."""
     wt_id = int(callback.data.split(":")[1])
     user = await _get_user(session, callback.from_user.id)
     if not user:
@@ -303,9 +303,22 @@ async def cb_workout_archive(callback: CallbackQuery, session: AsyncSession):
     if not wt or wt.user_id != user.id:
         return await callback.answer("Не найдено", show_alert=True)
 
+    # 1. Ставим флаг архивации
     wt.is_archived = True
     await session.commit()
 
+    # 2. Ищем активную сессию и удаляем её
+    active_session = await session.scalar(
+        select(WorkoutSession).where(
+            WorkoutSession.workout_type_id == wt_id,
+            WorkoutSession.finished_at.is_(None)
+        )
+    )
+    if active_session:
+        await session.delete(active_session)
+        await session.commit()
+
+    # 3. Возвращаемся к списку тренировок
     result = await session.execute(
         select(WorkoutType)
         .where(WorkoutType.user_id == user.id, WorkoutType.is_archived == False)
@@ -329,8 +342,9 @@ async def cb_workout_archive(callback: CallbackQuery, session: AsyncSession):
 
 
 @router.callback_query(F.data.startswith("wt_del_yes:"))
-async def cb_workout_delete_confirm(callback: CallbackQuery, session: AsyncSession):
-    """Жёсткое удаление: сначала сессии, потом сама тренировка (упражнения каскадно)."""
+async def cb_workout_delete_confirm(callback: CallbackQuery,
+                                    session: AsyncSession):
+    """Жёсткое удаление: сначала чистим историю, потом удаляем тренировку."""
     wt_id = int(callback.data.split(":")[1])
     user = await _get_user(session, callback.from_user.id)
     if not user:
@@ -340,15 +354,31 @@ async def cb_workout_delete_confirm(callback: CallbackQuery, session: AsyncSessi
     if not wt or wt.user_id != user.id:
         return await callback.answer("Не найдено", show_alert=True)
 
+    # 1. Получаем ID всех упражнений этой тренировки
+    result = await session.execute(
+        select(Exercise.id).where(Exercise.workout_type_id == wt_id))
+    ex_ids = list(result.scalars())
+
+    # 2. Удаляем подходы и заметки (чтобы снять блокировку)
+    if ex_ids:
+        await session.execute(
+            delete(SessionSet).where(SessionSet.exercise_id.in_(ex_ids)))
+        await session.execute(delete(SessionExerciseNote).where(
+            SessionExerciseNote.exercise_id.in_(ex_ids)))
+
+    # 3. Удаляем сессии
     await session.execute(
-        delete(WorkoutSession).where(WorkoutSession.workout_type_id == wt_id)
-    )
+        delete(WorkoutSession).where(WorkoutSession.workout_type_id == wt_id))
+
+    # 4. Удаляем саму тренировку (упражнения удалятся каскадно)
     await session.delete(wt)
     await session.commit()
 
+    # Возвращаемся к списку тренировок
     result = await session.execute(
         select(WorkoutType)
-        .where(WorkoutType.user_id == user.id, WorkoutType.is_archived == False)
+        .where(WorkoutType.user_id == user.id,
+               WorkoutType.is_archived == False)
         .order_by(WorkoutType.sort_order)
     )
     workouts = list(result.scalars())
@@ -366,7 +396,6 @@ async def cb_workout_delete_confirm(callback: CallbackQuery, session: AsyncSessi
             reply_markup=workouts_list_kb(workouts),
         )
     await callback.answer("Удалено")
-
 
 @router.callback_query(F.data.startswith("wt_del_no:"))
 async def cb_workout_delete_cancel(callback: CallbackQuery, session: AsyncSession):
@@ -710,3 +739,252 @@ async def cb_arch_del_yes(callback: CallbackQuery, session: AsyncSession):
         )
 
     await callback.answer("Удалено")
+
+
+# ═══════════════════════════════════════════════════════════
+#  Архив тренировок
+# ═══════════════════════════════════════════════════════════
+
+@router.callback_query(F.data == "wt_arch_list")
+async def cb_workouts_archive(callback: CallbackQuery, session: AsyncSession):
+    from app.keyboards.workout_kb import workouts_archive_list_kb
+    user = await _get_user(session, callback.from_user.id)
+    if not user:
+        return await callback.answer("Сначала /start", show_alert=True)
+
+    result = await session.execute(
+        select(WorkoutType)
+        .where(WorkoutType.user_id == user.id, WorkoutType.is_archived == True)
+        .order_by(WorkoutType.sort_order)
+    )
+    archived = list(result.scalars())
+
+    if not archived:
+        return await callback.answer("Архив тренировок пуст.", show_alert=True)
+
+    await callback.message.edit_text(
+        "📦 <b>Архив тренировок</b>\n\n"
+        "Здесь лежат тренировки, которые ты убрал. Выбери, чтобы восстановить или удалить навсегда:",
+        reply_markup=workouts_archive_list_kb(archived)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("wt_arch_view:"))
+async def cb_workout_arch_card(callback: CallbackQuery, session: AsyncSession):
+    from app.keyboards.workout_kb import archived_workout_card_kb
+    wt_id = int(callback.data.split(":")[1])
+    user = await _get_user(session, callback.from_user.id)
+    if not user:
+        return await callback.answer("Сначала /start", show_alert=True)
+
+    wt = await session.get(WorkoutType, wt_id)
+    if not wt or wt.user_id != user.id:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    # Проверяем, есть ли активный дубликат
+    active_dup = await session.scalar(
+        select(WorkoutType).where(
+            WorkoutType.user_id == user.id,
+            WorkoutType.is_archived == False,
+            func.lower(func.trim(WorkoutType.name)) == wt.name.strip().lower()
+        )
+    )
+
+    sessions_count = await session.scalar(
+        select(func.count())
+        .select_from(WorkoutSession)
+        .where(WorkoutSession.workout_type_id == wt_id)
+    ) or 0
+
+    text = f"📦 <b>{wt.name}</b>\n\n"
+    if wt.description:
+        text += f"{wt.description}\n\n"
+
+    if sessions_count > 0:
+        text += f"📊 Выполнялась: <b>{sessions_count}</b> раз(а)\n"
+    else:
+        text += "📊 История выполнения отсутствует.\n"
+
+    if active_dup:
+        text += "\n⚠️ У тебя уже есть <b>активная</b> тренировка с таким названием.\n"
+        text += "При восстановлении история и упражнения объединятся с ней.\n"
+    else:
+        text += "\nЧто сделать с тренировкой?"
+
+    await callback.message.edit_text(
+        text, reply_markup=archived_workout_card_kb(wt.id, has_conflict=bool(
+            active_dup))
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("wt_restore:"))
+async def cb_workout_restore(callback: CallbackQuery, session: AsyncSession):
+    from app.keyboards.workout_kb import workouts_archive_list_kb
+    wt_id = int(callback.data.split(":")[1])
+    user = await _get_user(session, callback.from_user.id)
+    if not user:
+        return await callback.answer("Сначала /start", show_alert=True)
+
+    wt = await session.get(WorkoutType, wt_id)
+    if not wt or wt.user_id != user.id:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    wt.is_archived = False
+    await session.commit()
+
+    # Проверяем, остались ли еще архивные
+    result = await session.execute(
+        select(WorkoutType)
+        .where(WorkoutType.user_id == user.id, WorkoutType.is_archived == True)
+        .order_by(WorkoutType.sort_order)
+    )
+    archived = list(result.scalars())
+
+    if not archived:
+        # Если архив пуст — показываем список всех тренировок
+        result = await session.execute(
+            select(WorkoutType)
+            .where(WorkoutType.user_id == user.id, WorkoutType.is_archived == False)
+            .order_by(WorkoutType.sort_order)
+        )
+        workouts = list(result.scalars())
+        await callback.message.edit_text(
+            f"✅ Тренировка <b>{wt.name}</b> восстановлена!\n\n"
+            "🏋️ Выбери тренировку:",
+            reply_markup=workouts_list_kb(workouts)
+        )
+    else:
+        await callback.message.edit_text(
+            f"✅ Тренировка <b>{wt.name}</b> восстановлена!\n\n📦 <b>Остальные в архиве:</b>",
+            reply_markup=workouts_archive_list_kb(archived)
+        )
+    await callback.answer("Восстановлено")
+
+
+@router.callback_query(F.data.startswith("wt_arch_del_ask:"))
+async def cb_workout_arch_del_ask(callback: CallbackQuery,
+                                  session: AsyncSession):
+    # Используем существующую клавиатуру подтверждения, но добавим логику
+    from app.keyboards.workout_kb import confirm_workout_delete_kb
+    wt_id = int(callback.data.split(":")[1])
+    user = await _get_user(session, callback.from_user.id)
+    if not user:
+        return await callback.answer("Сначала /start", show_alert=True)
+
+    wt = await session.get(WorkoutType, wt_id)
+    if not wt or wt.user_id != user.id:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    sessions_count = await session.scalar(
+        select(func.count())
+        .select_from(WorkoutSession)
+        .where(WorkoutSession.workout_type_id == wt_id)
+    ) or 0
+
+    text = (
+        f"🔥 <b>Удалить тренировку «{wt.name}» навсегда?</b>\n\n"
+        "⚠️ Это действие <b>необратимо</b>.\n"
+    )
+    if sessions_count > 0:
+        text += f"Вместе с тренировкой удалится вся история (<b>{sessions_count}</b> записей) и все упражнения.\n"
+    text += "\nТочно удалить?"
+
+    await callback.message.edit_text(
+        text, reply_markup=confirm_workout_delete_kb(wt_id, has_history=(
+                    sessions_count > 0))
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("wt_merge:"))
+async def cb_workout_merge(callback: CallbackQuery, session: AsyncSession):
+    from app.keyboards.workout_kb import workouts_archive_list_kb, \
+        workouts_list_kb
+
+    wt_id = int(callback.data.split(":")[1])
+    user = await _get_user(session, callback.from_user.id)
+    if not user:
+        return await callback.answer("Сначала /start", show_alert=True)
+
+    wt = await session.get(WorkoutType, wt_id)
+    if not wt or wt.user_id != user.id:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    active_dup = await session.scalar(
+        select(WorkoutType).where(
+            WorkoutType.user_id == user.id,
+            WorkoutType.is_archived == False,
+            func.lower(func.trim(WorkoutType.name)) == wt.name.strip().lower()
+        )
+    )
+    if not active_dup:
+        return await callback.answer("Активная тренировка не найдена",
+                                     show_alert=True)
+
+    # 1. Переносим сессии (историю выполнения) в активную тренировку
+    await session.execute(
+        update(WorkoutSession)
+        .where(WorkoutSession.workout_type_id == wt.id)
+        .values(workout_type_id=active_dup.id)
+    )
+
+    # 2. Переносим упражнения
+    old_exs = list((await session.execute(
+        select(Exercise).where(Exercise.workout_type_id == wt.id))).scalars())
+    new_exs = list((await session.execute(select(Exercise).where(
+        Exercise.workout_type_id == active_dup.id))).scalars())
+
+    # Карта активных упражнений по (имя, тип)
+    new_ex_map = {(e.name.strip().lower(), e.kind): e for e in new_exs}
+
+    for old_ex in old_exs:
+        key = (old_ex.name.strip().lower(), old_ex.kind)
+        if key in new_ex_map:
+            # Если упражнение уже есть в активной, склеиваем их историю
+            new_ex = new_ex_map[key]
+            await session.execute(
+                update(SessionSet).where(
+                    SessionSet.exercise_id == old_ex.id).values(
+                    exercise_id=new_ex.id)
+            )
+            # Заметки удаляем (чтобы не было конфликта уникальности)
+            await session.execute(delete(SessionExerciseNote).where(
+                SessionExerciseNote.exercise_id == old_ex.id))
+            await session.delete(old_ex)
+        else:
+            # Если нет — просто перепривязываем к активной тренировке
+            old_ex.workout_type_id = active_dup.id
+
+    # 3. Удаляем пустую архивную тренировку
+    await session.delete(wt)
+    await session.commit()
+
+    # 4. Возвращаемся в архив
+    result = await session.execute(
+        select(WorkoutType)
+        .where(WorkoutType.user_id == user.id, WorkoutType.is_archived == True)
+        .order_by(WorkoutType.sort_order)
+    )
+    archived = list(result.scalars())
+
+    if not archived:
+        result = await session.execute(
+            select(WorkoutType)
+            .where(WorkoutType.user_id == user.id,
+                   WorkoutType.is_archived == False)
+            .order_by(WorkoutType.sort_order)
+        )
+        workouts = list(result.scalars())
+        await callback.message.edit_text(
+            f"✅ Тренировка объединена с <b>{active_dup.name}</b>!\n\n"
+            "🏋️ Выбери тренировку:",
+            reply_markup=workouts_list_kb(workouts)
+        )
+    else:
+        await callback.message.edit_text(
+            f"✅ Тренировка объединена с <b>{active_dup.name}</b>!\n\n📦 <b>Остальные в архиве:</b>",
+            reply_markup=workouts_archive_list_kb(archived)
+        )
+    await callback.answer("Объединено")

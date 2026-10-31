@@ -14,6 +14,7 @@ def workouts_list_kb(workouts: list[WorkoutType],
         marker = " ▶️" if w.id == active_wt_id else ""
         kb.button(text=f"🏋️ {w.name}{marker}", callback_data=f"wt:{w.id}")
     kb.button(text="➕ Новая тренировка", callback_data="wt_new")
+    kb.button(text="📦 Архив тренировок", callback_data="wt_arch_list")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -160,7 +161,7 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
     if ex.kind == "strength":
         weight_text = format_weight(planned_weight)
         # Если есть история, пишем "Как в прошлый раз", иначе "Как планировал"
-        btn_text = f"✅ Как в прошлый раз: {planned_reps} × {weight_text}" if use_history else f"✅ Как планировал: {planned_reps} × {weight_text}"
+        btn_text = f"✅ Предыдущий подход: {planned_reps} × {weight_text}" if use_history else f"✅ Как планировал: {planned_reps} × {weight_text}"
         kb.button(
             text=btn_text,
             callback_data=f"tr_save_planned:{session_id}:{ex.id}",
@@ -172,7 +173,7 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
         duration_text = format_duration(planned_duration)
 
         # Если есть история, пишем "Как в прошлый раз", иначе "Как планировал"
-        btn_text = f"✅ Как в прошлый раз: {duration_text}" if use_history else f"✅ Как планировал: {duration_text}"
+        btn_text = f"✅ Как на предыдущей тренировке: {duration_text}" if use_history else f"✅ Как планировал: {duration_text}"
 
         kb.button(
             text=btn_text,
@@ -332,5 +333,35 @@ def confirm_archive_delete_kb(ex_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="🔥 Да, удалить навсегда", callback_data=f"ex_arch_del_yes:{ex_id}")
     kb.button(text="❌ Отмена", callback_data=f"ex_arch_view:{ex_id}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def workout_description_kb() -> InlineKeyboardMarkup:
+    """Клавиатура при создании тренировки (шаг с описанием)."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⏭ Пропустить", callback_data="wt_desc_skip")
+    kb.button(text="❌ Отмена", callback_data="fsm_cancel")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def workouts_archive_list_kb(workouts: list[WorkoutType]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for w in workouts:
+        kb.button(text=f"📦 {w.name}", callback_data=f"wt_arch_view:{w.id}")
+    kb.button(text="⬅️ Назад к тренировкам", callback_data="wt_list")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def archived_workout_card_kb(wt_id: int, has_conflict: bool = False) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    if has_conflict:
+        kb.button(text="🔗 Объединить и восстановить", callback_data=f"wt_merge:{wt_id}")
+    else:
+        kb.button(text="🔄 Восстановить", callback_data=f"wt_restore:{wt_id}")
+    kb.button(text="🔥 Удалить навсегда", callback_data=f"wt_arch_del_ask:{wt_id}")
+    kb.button(text="⬅️ К архиву", callback_data="wt_arch_list")
     kb.adjust(1)
     return kb.as_markup()

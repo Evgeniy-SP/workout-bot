@@ -215,6 +215,16 @@ async def cb_start(callback: CallbackQuery, session: AsyncSession, state: FSMCon
     if not wt or wt.user_id != user.id:
         return await callback.answer("Не найдено", show_alert=True)
 
+    if not wt.exercises:
+        from app.keyboards.workout_kb import exercises_list_kb
+        await callback.message.edit_text(
+            "⚠️ <b>В тренировке нет упражнений!</b>\n\n"
+            "Чтобы начать тренировку, сначала добавь в неё хотя бы одно упражнение.\n\n"
+            "📋 Упражнения — <b>" + wt.name + "</b>",
+            reply_markup=exercises_list_kb(wt.exercises, wt.id)
+        )
+        return await callback.answer("Список упражнений пуст", show_alert=True)
+
     # Если уже есть активная — предупредить и вернуть в список тренировок
     active = await get_active_session(session, user.id)
     if active:

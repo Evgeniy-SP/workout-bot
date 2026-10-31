@@ -10,13 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import SessionSet, SessionExerciseNote, WorkoutSession
 
 
-async def get_active_session(session: AsyncSession, user_id: int) -> WorkoutSession | None:
-    """Сессия без finished_at = активная (в процессе)."""
+async def get_active_session(session: AsyncSession,
+                             user_id: int) -> WorkoutSession | None:
+    """Сессия без finished_at = активная. Ищем только среди неархивных тренировок."""
+    from app.db.models import WorkoutType
+
     result = await session.execute(
         select(WorkoutSession)
+        .join(WorkoutType,
+              WorkoutType.id == WorkoutSession.workout_type_id)  # <--- ДЖОИН
         .where(
             WorkoutSession.user_id == user_id,
             WorkoutSession.finished_at.is_(None),
+            WorkoutType.is_archived == False,  # <--- ПРОВЕРКА НА АРХИВ
         )
         .order_by(WorkoutSession.started_at.desc())
         .limit(1)
