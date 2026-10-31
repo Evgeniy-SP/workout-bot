@@ -622,3 +622,91 @@ async def cb_ex_move_down(callback: CallbackQuery, session: AsyncSession):
         await _render_ex_card(session, ex), reply_markup=exercise_card_kb(ex)
     )
     await callback.answer("Перемещено вниз ⬇️")
+
+
+@router.callback_query(F.data.startswith("ex_arch_del_ask:"))
+async def cb_arch_del_ask(callback: CallbackQuery, session: AsyncSession):
+    from sqlalchemy import func as sa_func
+    from app.keyboards.workout_kb import confirm_archive_delete_kb
+
+    ex_id = int(callback.data.split(":")[1])
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    # Считаем, сколько подходов в истории
+    sets_count = await session.scalar(
+        select(sa_func.count())
+        .select_from(SessionSet)
+        .where(SessionSet.exercise_id == ex_id)
+    ) or 0
+
+    text = (
+        f"🔥 <b>Удалить упражнение «{ex.name}» навсегда?</b>\n\n"
+        "⚠️ Это действие <b>необратимо</b>.\n"
+    )
+    if sets_count > 0:
+        text += f"Вместе с упражнением будет удалена вся его история (<b>{sets_count}</b> подходов из прошлых тренировок).\n"
+
+    text += "\nЕсли ты не уверен, лучше оставь его в архиве."
+
+    await callback.message.edit_text(
+        text, reply_markup=confirm_archive_delete_kb(ex.id)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ex_arch_del_yes:"))
+async def cb_arch_del_yes(callback: CallbackQuery, session: AsyncSession):
+    from app.keyboards.workout_kb import workouts_list_kb, archive_list_kb
+
+    ex_id = int(callback.data.split(":")[1])
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    wt_id = ex.workout_type_id
+    name = ex.name
+
+    # 1. Удаляем историю подходов (чтобы база разрешила удалить упражнение)
+    await session.execute(
+        delete(SessionSet).where(SessionSet.exercise_id == ex_id))
+    # 2. Удаляем заметки (на всякий случай)
+    await session.execute(delete(SessionExerciseNote).where(
+        SessionExerciseNote.exercise_id == ex_id))
+
+    # 3. Удаляем само упражнение
+    await session.delete(ex)
+    await session.commit()
+
+    # Возвращаемся в архив и проверяем, остались ли там еще упражнения
+    result = await session.execute(
+        select(Exercise)
+        .where(Exercise.workout_type_id == wt_id, Exercise.is_archived == True)
+        .order_by(Exercise.sort_order)
+    )
+    archived = list(result.scalars())
+
+    if not archived:
+        # Если архив пуст, возвращаемся в карточку тренировки
+        await callback.message.edit_text(
+            f"🗑 Упражнение <b>{name}</b> удалено навсегда.\n\n📦 Архив пуст.",
+            reply_markup=workout_card_kb(wt_id)
+        )
+    else:
+        # Перестраиваем архив (группируем дубликаты)
+        grouped = {}
+        for e in archived:
+            key = (e.name.strip().lower(), e.kind)
+            if key not in grouped:
+                grouped[key] = []
+            grouped[key].append(e)
+        grouped_list = [(exs[0], len(exs)) for exs in grouped.values()]
+
+        await callback.message.edit_text(
+            f"🗑 Упражнение <b>{name}</b> удалено навсегда.\n\n"
+            "📦 <b>Архив упражнений</b>\nВыбери упражнение:",
+            reply_markup=archive_list_kb(grouped_list, wt_id)
+        )
+
+    await callback.answer("Удалено")

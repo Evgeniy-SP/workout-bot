@@ -291,6 +291,8 @@ def archive_card_kb(ex: Exercise, has_conflict: bool = False) -> InlineKeyboardM
         kb.button(text="🔗 Объединить и восстановить", callback_data=f"ex_restore_merge:{ex.id}")
     else:
         kb.button(text="🔄 Восстановить", callback_data=f"ex_restore_merge:{ex.id}")
+    kb.button(text="🔥 Удалить навсегда",
+                  callback_data=f"ex_arch_del_ask:{ex.id}")
     kb.button(text="⬅️ К архиву", callback_data=f"ex_arch_menu:{ex.workout_type_id}")
     kb.adjust(1)
     return kb.as_markup()
@@ -322,5 +324,13 @@ def confirm_training_delete_kb(session_id: int, ex_id: int, context: str,
                   callback_data=f"tr_remove_menu:{session_id}")
     else:
         kb.button(text="❌ Отмена", callback_data=f"tr_ex:{session_id}:{ex_id}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def confirm_archive_delete_kb(ex_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔥 Да, удалить навсегда", callback_data=f"ex_arch_del_yes:{ex_id}")
+    kb.button(text="❌ Отмена", callback_data=f"ex_arch_view:{ex_id}")
     kb.adjust(1)
     return kb.as_markup()
