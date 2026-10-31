@@ -77,7 +77,7 @@ def _next_set_num(sets: list[SessionSet]) -> int:
 
 
 async def render_approach_screen(
-    session: AsyncSession, session_id: int, ex_id: int
+        session: AsyncSession, session_id: int, ex_id: int
 ):
     from app.keyboards.workout_kb import cardio_done_kb, strength_summary_kb
     from app.render import render_strength_summary
@@ -96,28 +96,49 @@ async def render_approach_screen(
     # ─── КАРДИО ───
     if ex.kind != "strength":
         can_remove = not completed
+
+        # 1. Ищем заметку в ТЕКУЩЕЙ сессии (если ты успел её написать сегодня)
+        note_res = await session.execute(
+            select(SessionExerciseNote).where(
+                SessionExerciseNote.session_id == session_id,
+                SessionExerciseNote.exercise_id == ex_id
+            )
+        )
+        note_obj = note_res.scalar_one_or_none()
+
+        # 2. Ищем историю (исключая текущую сессию!) и заметку из ПРОШЛОЙ
+        last_set = await get_last_completed_set(session, ws.user_id, ex_id,
+                                                current_session_id=session_id)
+        last_duration = last_set.duration_seconds if last_set else None
+        last_note = None
+        if last_set:
+            last_note = await get_last_note_for_exercise(session, ex_id,
+                                                         last_set.session_id)
+
         if completed:
             s = completed[0]
             duration = format_duration(
                 s.duration_seconds) if s.duration_seconds else "—"
+
+            # Приоритет: заметка из текущей сессии -> заметка из прошлой -> ничего
+            note_text = ""
+            if note_obj:
+                note_text = f"\n\n📝 <i>Заметка: {note_obj.note}</i>"
+            elif last_note:
+                note_text = f"\n\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>"
+
             text = (
-                f"<b>{ex.name}</b>\n\n"
-                f"✅ Выполнено: <b>{duration}</b>\n\n"
-                "Можно изменить время, если ошиблись."
+                    f"<b>{ex.name}</b>\n\n"
+                    f"✅ Выполнено: <b>{duration}</b>\n\n"
+                    "Можно изменить время, если ошиблись." + note_text
             )
             kb = cardio_done_kb(session_id, ex, can_remove=can_remove)
         else:
-            # Получаем заметку и прошлое время из истории
-            last_note = await get_last_note_for_exercise(session, ws.user_id,
-                                                         ex_id, session_id)
-
-            last_set = await get_last_completed_set(session, ws.user_id, ex_id)
-            last_duration = last_set.duration_seconds if last_set else None
-
+            # Если не выполнено, показываем план и историю
             text = render_approach(
                 ex, 1, None, None, ex.duration_seconds,
                 last_note=last_note,
-                last_duration=last_duration,  # <--- ПЕРЕДАЕМ СЮДА
+                last_duration=last_duration,
             )
             kb = approach_kb(
                 session_id, ex, 1, None, None,
@@ -126,33 +147,35 @@ async def render_approach_screen(
                 use_history=bool(last_duration)
             )
 
+        return text, kb  # Для кардио выходим здесь
+
     # ─── СИЛОВОЕ ───
     else:
         plan = ex.sets or 0
         if plan > 0 and len(completed) >= plan:
-            # ВАЖНО: здесь нет return!
             text = render_strength_summary(ex, completed)
             kb = strength_summary_kb(session_id, ex, completed)
         else:
             set_num = len(completed) + 1
-            last_set = await get_last_completed_set(session, ws.user_id, ex_id)
-
-            # План из шаблона
-            plan_weight = ex.weight_kg
-            plan_reps = ex.reps
-
-            # История
-            last_weight = last_set.weight_kg if last_set else None
+            last_set = await get_last_completed_set(session, ws.user_id, ex_id,
+                                                    current_session_id=session_id)
             last_reps = last_set.reps if last_set else None
-            last_note = await get_last_note_for_exercise(session, ws.user_id, ex_id, session_id)
-            # Для кнопки (если есть история — берем её, иначе план)
-            use_history = bool(last_set)
-            action_weight = last_weight if last_weight else plan_weight
-            action_reps = last_reps if last_reps else plan_reps
+            last_weight = last_set.weight_kg if last_set else None
+
+            last_note = None
+            if last_set:
+                last_note = await get_last_note_for_exercise(session, ex_id,
+                                                             last_set.session_id)
+
+            current_last_set = completed[-1] if completed else None
+            action_weight = current_last_set.weight_kg if current_last_set else (
+                last_weight if last_weight else ex.weight_kg)
+            action_reps = current_last_set.reps if current_last_set else (
+                last_reps if last_reps else ex.reps)
 
             can_remove = not sets
             text = render_approach(
-                ex, set_num, plan_reps, plan_weight, ex.duration_seconds,
+                ex, set_num, ex.reps, ex.weight_kg, ex.duration_seconds,
                 last_reps=last_reps,
                 last_weight=last_weight,
                 last_note=last_note,
@@ -160,10 +183,10 @@ async def render_approach_screen(
             kb = approach_kb(
                 session_id, ex, set_num, action_reps, action_weight,
                 ex.duration_seconds, can_remove=can_remove,
-                use_history=use_history
+                use_history=bool(last_set)
             )
 
-    # ─── ДОБАВЛЯЕМ ЗАМЕТКУ (теперь она добавится и к силовым, и к кардио) ───
+    # Добавляем заметку (для силовых, если она есть)
     note_res = await session.execute(
         select(SessionExerciseNote).where(
             SessionExerciseNote.session_id == session_id,
@@ -172,9 +195,8 @@ async def render_approach_screen(
     )
     note_obj = note_res.scalar_one_or_none()
     if note_obj:
-        text += f"\n\n📝 <i>{note_obj.note}</i>"
+        text += f"\n\n📝 <i>Заметка: {note_obj.note}</i>"
 
-    # Единственный return в функции
     return text, kb
 
 # ═══════════════════════════════════════════════════════════
@@ -292,7 +314,7 @@ async def cb_save_planned(callback: CallbackQuery, session: AsyncSession, state:
     set_num = _next_set_num(sets)
 
     # Определяем плановые значения
-    last_set = await get_last_completed_set(session, ws.user_id, ex_id)
+    last_set = await get_last_completed_set(session, ws.user_id, ex_id, current_session_id=session_id)
     planned_weight = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
     planned_reps = last_set.reps if last_set and last_set.reps else ex.reps
 
@@ -638,20 +660,15 @@ async def _save_custom_set(message: Message, state: FSMContext, session: AsyncSe
             await message.answer(text, reply_markup=kb)
         return
 
-    # Ещё не всё — показываем следующий подход (только для силового)
-    ws = await session.get(WorkoutSession, session_id)
-    last_set = await get_last_completed_set(session, ws.user_id, ex_id)
-    planned_weight = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
-    planned_reps = last_set.reps if last_set and last_set.reps else ex.reps
-    next_num = done + 1
-
-    text = render_approach(
-        ex, next_num, planned_reps, planned_weight, ex.duration_seconds,
-        last_weight=last_set.weight_kg if last_set else None,
-    )
-    kb = approach_kb(session_id, ex, next_num, planned_reps, planned_weight, ex.duration_seconds)
-    await message.answer(text, reply_markup=kb)
-
+    # Ещё не всё — показываем следующий подход через единую функцию
+    result = await render_approach_screen(session, session_id, ex_id)
+    if result:
+        text, kb = result
+        await message.answer(text, reply_markup=kb)
+    else:
+        ws = await session.get(WorkoutSession, session_id)
+        text, kb = await _render_list(session, session_id, ws.user_id)
+        await message.answer(text, reply_markup=kb)
 
 # ═══════════════════════════════════════════════════════════
 #  Пропустить упражнение

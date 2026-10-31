@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Exercise, SessionSet, User, WorkoutSession, WorkoutType
+from app.db.models import Exercise, SessionExerciseNote, SessionSet, User, WorkoutSession, WorkoutType
 from app.keyboards.workout_kb import (
     confirm_delete_kb,
     confirm_workout_delete_kb,
@@ -40,6 +40,23 @@ async def _load_workout_with_exercises(session: AsyncSession, wt_id: int):
         )
     )
     return result.scalar_one_or_none()
+
+
+async def _render_ex_card(session: AsyncSession, ex: Exercise) -> str:
+    """Рендер карточки упражнения с добавлением позиции в списке."""
+    text = render_exercise_card(ex)
+
+    # Считаем позицию среди активных упражнений
+    result = await session.execute(
+        select(Exercise.id)
+        .where(Exercise.workout_type_id == ex.workout_type_id,
+               Exercise.is_archived == False)
+        .order_by(Exercise.sort_order)
+    )
+    ids = list(result.scalars())
+    if ex.id in ids:
+        text += f"\n\n📌 <i>Позиция: {ids.index(ex.id) + 1} из {len(ids)}</i>"
+    return text
 
 
 # ─────────────── /workout — список активных тренировок ───────────────
@@ -157,7 +174,7 @@ async def cb_exercise_card(callback: CallbackQuery, session: AsyncSession, state
         return await callback.answer("Не найдено", show_alert=True)
 
     await callback.message.edit_text(
-        render_exercise_card(ex), reply_markup=exercise_card_kb(ex)
+        await _render_ex_card(session, ex), reply_markup=exercise_card_kb(ex)
     )
     await callback.answer()
 
@@ -384,21 +401,20 @@ async def cb_archive_menu(callback: CallbackQuery, session: AsyncSession):
     if not archived:
         return await callback.answer("В архиве пока пусто.", show_alert=True)
 
-    # Группируем по имени (без учета регистра)
+    # Группируем по имени И типу (kind)
     grouped = {}
     for ex in archived:
-        key = ex.name.lower()
+        key = (ex.name.strip().lower(), ex.kind)
         if key not in grouped:
             grouped[key] = []
         grouped[key].append(ex)
 
-    # Создаем список: (представитель, количество)
     grouped_list = [(exs[0], len(exs)) for exs in grouped.values()]
 
     await callback.message.edit_text(
         "📦 <b>Архив упражнений</b>\n\n"
-        "Если в архиве есть дубликаты (например, несколько «Жимов»), "
-        "они объединены в одну запись. При восстановлении их история склеится в одно упражнение.\n\n"
+        "Если в архиве есть дубликаты (например, несколько «Жимов» одного типа), "
+        "они объединены в одну запись. При восстановлении их история склеится.\n\n"
         "Выбери упражнение:",
         reply_markup=archive_list_kb(grouped_list, wt_id)
     )
@@ -413,22 +429,41 @@ async def cb_archive_view(callback: CallbackQuery, session: AsyncSession):
     if not ex:
         return await callback.answer("Не найдено", show_alert=True)
 
-    # Считаем дубликаты по имени
-    result = await session.execute(
+    name_clean = ex.name.strip()
+
+    # 1. Считаем архивные дубликаты ТОГО ЖЕ ТИПА
+    archived_count = await session.scalar(
         select(func.count())
         .select_from(Exercise)
         .where(
             Exercise.workout_type_id == ex.workout_type_id,
             Exercise.is_archived == True,
-            func.lower(Exercise.name) == ex.name.lower()
+            Exercise.kind == ex.kind,  # <--- проверяем тип!
+            func.lower(func.trim(Exercise.name)) == name_clean.lower()
         )
-    )
-    dup_count = result.scalar() or 1
+    ) or 0
+
+    # 2. Проверяем активный дубликат ТОГО ЖЕ ТИПА
+    active_count = await session.scalar(
+        select(func.count())
+        .select_from(Exercise)
+        .where(
+            Exercise.workout_type_id == ex.workout_type_id,
+            Exercise.is_archived == False,
+            Exercise.kind == ex.kind,  # <--- проверяем тип!
+            func.lower(func.trim(Exercise.name)) == name_clean.lower()
+        )
+    ) or 0
 
     text = f"📦 Упражнение <b>{ex.name}</b> в архиве.\n\n"
-    if dup_count > 1:
-        text += f"⚠️ Найдено <b>{dup_count}</b> архивных записей с этим названием.\n"
-        text += "При восстановлении их история будет объединена в одно упражнение.\n\n"
+    has_conflict = (active_count > 0) or (archived_count > 1)
+
+    if active_count > 0:
+        text += f"⚠️ В тренировке уже есть <b>активное</b> {'силовое' if ex.kind == 'strength' else 'кардио'} упражнение с таким названием.\n"
+        text += "При восстановлении история объединится с ним.\n\n"
+    elif archived_count > 1:
+        text += f"⚠️ Найдено <b>{archived_count}</b> архивных записей этого типа с таким названием.\n"
+        text += "При восстановлении их история объединится в одно упражнение.\n\n"
     else:
         text += "Его параметры и история сохранены.\n\n"
 
@@ -436,28 +471,9 @@ async def cb_archive_view(callback: CallbackQuery, session: AsyncSession):
 
     await callback.message.edit_text(
         text,
-        reply_markup=archive_card_kb(ex, dup_count)
+        reply_markup=archive_card_kb(ex, has_conflict=has_conflict)
     )
     await callback.answer()
-
-
-@router.callback_query(F.data.startswith("ex_restore:"))
-async def cb_restore_exercise(callback: CallbackQuery, session: AsyncSession):
-    ex_id = int(callback.data.split(":")[1])
-    ex = await session.get(Exercise, ex_id)
-    if not ex:
-        return await callback.answer("Не найдено", show_alert=True)
-
-    # Снимаем флаг архивации
-    ex.is_archived = False
-    await session.commit()
-
-    await callback.message.edit_text(
-        f"✅ Упражнение <b>{ex.name}</b> восстановлено!\n\n"
-        "Оно снова появилось в списке упражнений вместе со всей историей.",
-        reply_markup=workout_card_kb(ex.workout_type_id)
-    )
-    await callback.answer("Восстановлено")
 
 
 @router.callback_query(F.data.startswith("ex_restore_merge:"))
@@ -467,59 +483,67 @@ async def cb_restore_merge(callback: CallbackQuery, session: AsyncSession):
     if not ex:
         return await callback.answer("Не найдено", show_alert=True)
 
-    name = ex.name
+    name_clean = ex.name.strip()
     wt_id = ex.workout_type_id
 
-    # Ищем все архивные записи с таким же именем
+    # Ищем все архивные записи с таким же именем И ТИПОМ
     result = await session.execute(
         select(Exercise).where(
             Exercise.workout_type_id == wt_id,
             Exercise.is_archived == True,
-            func.lower(Exercise.name) == name.lower()
+            Exercise.kind == ex.kind,
+            func.lower(func.trim(Exercise.name)) == name_clean.lower()
         )
     )
     archived_exs = list(result.scalars())
 
     if not archived_exs:
-        return await callback.answer("Ошибка: запись не найдена в архиве",
-                                     show_alert=True)
+        return await callback.answer("Не найдено в архиве", show_alert=True)
 
-    # Проверяем, есть ли уже активное упражнение с таким именем
+    # Проверяем, есть ли уже активное упражнение с таким именем И ТИПОМ
     result = await session.execute(
         select(Exercise).where(
             Exercise.workout_type_id == wt_id,
             Exercise.is_archived == False,
-            func.lower(Exercise.name) == name.lower()
+            Exercise.kind == ex.kind,
+            func.lower(func.trim(Exercise.name)) == name_clean.lower()
         )
     )
     active_ex = result.scalars().first()
 
     if active_ex:
-        # Если активное есть, сливаем все архивные в него
         target_id = active_ex.id
         for e in archived_exs:
             await session.execute(
-                update(SessionSet)
-                .where(SessionSet.exercise_id == e.id)
-                .values(exercise_id=target_id)
+                update(SessionSet).where(
+                    SessionSet.exercise_id == e.id).values(
+                    exercise_id=target_id)
+            )
+            await session.execute(
+                update(SessionExerciseNote).where(
+                    SessionExerciseNote.exercise_id == e.id).values(
+                    exercise_id=target_id)
             )
             await session.delete(e)
-        msg = f"✅ История ({len(archived_exs)} шт.) объединена с активным упражнением <b>{name}</b>!"
+        msg = f"✅ История объединена с активным упражнением <b>{name_clean}</b>!"
     else:
-        # Если активного нет, берем первое архивное как основное
         target_ex = archived_exs[0]
         target_ex.is_archived = False
         target_id = target_ex.id
 
-        # Остальные удаляем, перенося их подходы
         for e in archived_exs[1:]:
             await session.execute(
-                update(SessionSet)
-                .where(SessionSet.exercise_id == e.id)
-                .values(exercise_id=target_id)
+                update(SessionSet).where(
+                    SessionSet.exercise_id == e.id).values(
+                    exercise_id=target_id)
+            )
+            await session.execute(
+                update(SessionExerciseNote).where(
+                    SessionExerciseNote.exercise_id == e.id).values(
+                    exercise_id=target_id)
             )
             await session.delete(e)
-        msg = f"✅ Упражнение <b>{name}</b> восстановлено (объединено {len(archived_exs)} записей)!"
+        msg = f"✅ Упражнение <b>{name_clean}</b> восстановлено (объединено {len(archived_exs)} записей)!"
 
     await session.commit()
 
@@ -528,3 +552,73 @@ async def cb_restore_merge(callback: CallbackQuery, session: AsyncSession):
         reply_markup=workout_card_kb(wt_id)
     )
     await callback.answer("Восстановлено")
+
+
+# ═══════════════════════════════════════════════════════════
+#  Перемещение упражнений (сортировка)
+# ═══════════════════════════════════════════════════════════
+
+@router.callback_query(F.data.startswith("ex_move_up:"))
+async def cb_ex_move_up(callback: CallbackQuery, session: AsyncSession):
+    ex_id = int(callback.data.split(":")[1])
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    # Ищем упражнение, которое идет ПЕРЕД ним (только среди активных)
+    result = await session.execute(
+        select(Exercise)
+        .where(
+            Exercise.workout_type_id == ex.workout_type_id,
+            Exercise.sort_order < ex.sort_order,
+            Exercise.is_archived == False
+        )
+        .order_by(Exercise.sort_order.desc())
+        .limit(1)
+    )
+    prev_ex = result.scalar_one_or_none()
+
+    if not prev_ex:
+        return await callback.answer("Упражнение уже первое", show_alert=True)
+
+    # Меняем местами
+    ex.sort_order, prev_ex.sort_order = prev_ex.sort_order, ex.sort_order
+    await session.commit()
+
+    await callback.message.edit_text(
+        await _render_ex_card(session, ex), reply_markup=exercise_card_kb(ex)
+    )
+    await callback.answer("Перемещено вверх ⬆️")
+
+
+@router.callback_query(F.data.startswith("ex_move_down:"))
+async def cb_ex_move_down(callback: CallbackQuery, session: AsyncSession):
+    ex_id = int(callback.data.split(":")[1])
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    # Ищем упражнение, которое идет ПОСЛЕ него (только среди активных)
+    result = await session.execute(
+        select(Exercise)
+        .where(
+            Exercise.workout_type_id == ex.workout_type_id,
+            Exercise.sort_order > ex.sort_order,
+            Exercise.is_archived == False
+        )
+        .order_by(Exercise.sort_order.asc())
+        .limit(1)
+    )
+    next_ex = result.scalar_one_or_none()
+
+    if not next_ex:
+        return await callback.answer("Упражнение уже последнее", show_alert=True)
+
+    # Меняем местами
+    ex.sort_order, next_ex.sort_order = next_ex.sort_order, ex.sort_order
+    await session.commit()
+
+    await callback.message.edit_text(
+        await _render_ex_card(session, ex), reply_markup=exercise_card_kb(ex)
+    )
+    await callback.answer("Перемещено вниз ⬇️")

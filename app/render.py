@@ -95,14 +95,14 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
             display_reps = last_reps if last_reps else planned_reps
             display_weight = format_weight(
                 last_weight if last_weight else planned_weight)
-            header = f"Прошлый раз: <b>{display_reps} × {display_weight}</b>"
+            header = f"Предыдущая тренировка: <b>{display_reps} × {display_weight}</b>"
         else:
             display_reps = planned_reps
             display_weight = format_weight(planned_weight)
             header = f"План: <b>{display_reps} × {display_weight}</b>"
 
         if last_note:
-            header += f"\n📝 <i>Прошлая заметка: {last_note}</i>"
+            header += f"\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>"
 
         return (
             f"<b>{ex.name}</b>\n\n"
@@ -117,7 +117,7 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
     else:
         duration_header = f"План: <b>{format_duration(planned_duration)}</b>"
 
-    note_text = f"\n📝 <i>Прошлая заметка: {last_note}</i>" if last_note else ""
+    note_text = f"\n\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>" if last_note else ""
 
     return (
         f"<b>{ex.name}</b>\n\n"

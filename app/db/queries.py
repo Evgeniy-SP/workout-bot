@@ -38,10 +38,11 @@ async def get_sets_grouped(session: AsyncSession, session_id: int) -> dict[int, 
 
 
 async def get_last_completed_set(
-    session: AsyncSession, user_id: int, exercise_id: int
+        session: AsyncSession, user_id: int, exercise_id: int,
+        current_session_id: int | None = None
 ) -> SessionSet | None:
-    """Последний успешно выполненный подход этого упражнения (для «вес по умолчанию»)."""
-    result = await session.execute(
+    """Последний успешно выполненный подход (исключая текущую сессию)."""
+    stmt = (
         select(SessionSet)
         .join(WorkoutSession, WorkoutSession.id == SessionSet.session_id)
         .where(
@@ -49,25 +50,28 @@ async def get_last_completed_set(
             SessionSet.exercise_id == exercise_id,
             SessionSet.completed == True,
         )
-        .order_by(SessionSet.id.desc())
-        .limit(1)
+    )
+
+    # Если передали ID текущей сессии, исключаем её из поиска
+    if current_session_id:
+        stmt = stmt.where(SessionSet.session_id != current_session_id)
+
+    result = await session.execute(
+        stmt.order_by(SessionSet.id.desc()).limit(1)
     )
     return result.scalar_one_or_none()
 
 
 async def get_last_note_for_exercise(
-    session: AsyncSession, user_id: int, exercise_id: int, current_session_id: int
+    session: AsyncSession, exercise_id: int, last_session_id: int
 ) -> str | None:
-    """Возвращает заметку из последней тренировки (исключая текущую)."""
+    """Возвращает заметку из конкретной (последней) тренировки."""
     result = await session.execute(
         select(SessionExerciseNote.note)
-        .join(WorkoutSession, WorkoutSession.id == SessionExerciseNote.session_id)
         .where(
-            WorkoutSession.user_id == user_id,
             SessionExerciseNote.exercise_id == exercise_id,
-            SessionExerciseNote.session_id != current_session_id
+            SessionExerciseNote.session_id == last_session_id
         )
-        .order_by(SessionExerciseNote.id.desc())
         .limit(1)
     )
     return result.scalar_one_or_none()

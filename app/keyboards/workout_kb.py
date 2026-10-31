@@ -70,7 +70,8 @@ def exercise_card_kb(ex: Exercise) -> InlineKeyboardMarkup:
 
     opt_text = "⚪ Опциональное: да" if ex.is_optional else "📌 Обязательное"
     kb.button(text=opt_text, callback_data=f"ex_toggle_opt:{ex.id}")
-
+    kb.button(text="⬆️ Вверх", callback_data=f"ex_move_up:{ex.id}")
+    kb.button(text="⬇️ Вниз", callback_data=f"ex_move_down:{ex.id}")
     kb.button(text="🗑 Убрать упражнение", callback_data=f"ex_del:{ex.id}")
     kb.button(text="⬅️ К списку", callback_data=f"wt_ex:{ex.workout_type_id}")
     kb.adjust(1)
@@ -133,7 +134,10 @@ def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
             icon = "✅"
         else:
             icon = "🟡"
-        kb.button(text=f"{icon} {i}. {ex.name}", callback_data=f"tr_ex:{session_id}:{ex.id}")
+        opt = " (опц.)" if ex.is_optional else ""
+
+        kb.button(text=f"{icon} {i}. {ex.name}{opt}",
+                  callback_data=f"tr_ex:{session_id}:{ex.id}")
 
     kb.button(text="➕ Добавить упражнение", callback_data=f"tr_ex_add:{session_id}")   # ← новая
     kb.button(text="🗑 Убрать упражнение", callback_data=f"tr_remove_menu:{session_id}")
@@ -259,9 +263,6 @@ def after_finish_kb() -> InlineKeyboardMarkup:
 
 def archive_list_kb(grouped_exercises: list[tuple[Exercise, int]],
                     wt_id: int) -> InlineKeyboardMarkup:
-    """Список сгруппированных архивных упражнений.
-    grouped_exercises: список кортежей (представитель, кол-во дублей)
-    """
     kb = InlineKeyboardBuilder()
     for ex, count in grouped_exercises:
         if ex.kind == "strength":
@@ -280,15 +281,13 @@ def archive_list_kb(grouped_exercises: list[tuple[Exercise, int]],
     return kb.as_markup()
 
 
-def archive_card_kb(ex: Exercise, dup_count: int = 1) -> InlineKeyboardMarkup:
+def archive_card_kb(ex: Exercise, has_conflict: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    if dup_count > 1:
-        kb.button(text="🔗 Объединить и восстановить",
-                  callback_data=f"ex_restore_merge:{ex.id}")
+    if has_conflict:
+        kb.button(text="🔗 Объединить и восстановить", callback_data=f"ex_restore_merge:{ex.id}")
     else:
-        kb.button(text="🔄 Восстановить", callback_data=f"ex_restore:{ex.id}")
-    kb.button(text="⬅️ К архиву",
-              callback_data=f"ex_arch_menu:{ex.workout_type_id}")
+        kb.button(text="🔄 Восстановить", callback_data=f"ex_restore_merge:{ex.id}")
+    kb.button(text="⬅️ К архиву", callback_data=f"ex_arch_menu:{ex.workout_type_id}")
     kb.adjust(1)
     return kb.as_markup()
 
