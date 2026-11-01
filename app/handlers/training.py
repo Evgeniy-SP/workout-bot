@@ -2,6 +2,7 @@
 
 Храним данные в WorkoutSession (одна строка) и SessionSet (по строке на подход).
 """
+
 import random
 from datetime import datetime, timezone
 
@@ -26,6 +27,8 @@ from app.render import (
 from app.states import TrainingFSM
 from app.utils import format_duration, format_weight, parse_minutes_to_seconds
 
+import logging
+logger = logging.getLogger(__name__)
 # Хранилище таймеров: {session_id: {"task": Task, "duration": int, "end_time": datetime}}
 ACTIVE_TIMERS = {}
 
@@ -1181,11 +1184,49 @@ async def _run_rest_timer(bot, chat_id: int, session_id: int, seconds: int):
 
     try:
         await asyncio.sleep(seconds)
+
         async with async_session_maker() as session:
             ws = await session.get(WorkoutSession, session_id)
             if not ws or ws.finished_at is not None:
                 return
 
+        timer_data = ACTIVE_TIMERS.pop(session_id, None)
+        if not timer_data:
+            return
+
+        # Перерисовываем старый экран
+        if timer_data.get("message_id"):
+            async with async_session_maker() as session:
+                try:
+                    if timer_data["context"] == "ex":
+                        result = await render_approach_screen(session,
+                                                              session_id,
+                                                              timer_data[
+                                                                  "ex_id"])
+                        if result:
+                            text, kb = result
+                            await bot.edit_message_text(
+                                chat_id=timer_data["chat_id"],
+                                message_id=timer_data["message_id"],
+                                text=text,
+                                reply_markup=kb
+                            )
+                    else:
+                        ws = await session.get(WorkoutSession, session_id)
+                        if ws:
+                            text, kb = await _render_list(session, session_id,
+                                                          ws.user_id)
+                            await bot.edit_message_text(
+                                chat_id=timer_data["chat_id"],
+                                message_id=timer_data["message_id"],
+                                text=text,
+                                reply_markup=kb
+                            )
+                except Exception as e:
+                    # Если не удалось изменить (например, текст тот же) - пишем в лог
+                    logger.error(f"Ошибка при очистке кнопки таймера: {e}")
+
+        # Отправляем уведомление
         msg = await bot.send_message(
             chat_id=chat_id,
             text=f"⏰ <b>Отдых окончен!</b> Пора делать следующий подход.",
@@ -1194,6 +1235,7 @@ async def _run_rest_timer(bot, chat_id: int, session_id: int, seconds: int):
                                       callback_data="tr_timer_dismiss")]
             ])
         )
+
         await asyncio.sleep(15)
         try:
             await msg.delete()
@@ -1203,7 +1245,6 @@ async def _run_rest_timer(bot, chat_id: int, session_id: int, seconds: int):
         ACTIVE_TIMERS.pop(session_id, None)
 
 
-@router.callback_query(F.data.startswith("tr_timer:"))
 @router.callback_query(F.data.startswith("tr_timer:"))
 async def cb_start_timer(callback: CallbackQuery, session: AsyncSession):
     parts = callback.data.split(":")
@@ -1220,10 +1261,18 @@ async def cb_start_timer(callback: CallbackQuery, session: AsyncSession):
         callback.bot, callback.message.chat.id, session_id, seconds
     ))
 
+    # Определяем контекст (меню или упражнение)
+    context = "ex" if len(parts) > 3 and parts[3] == "ex" else "list"
+    ex_id = int(parts[4]) if context == "ex" else None
+
     ACTIVE_TIMERS[session_id] = {
         "task": task,
         "duration": seconds,
-        "end_time": datetime.now(timezone.utc) + timedelta(seconds=seconds)
+        "end_time": datetime.now(timezone.utc) + timedelta(seconds=seconds),
+        "chat_id": callback.message.chat.id,
+        "message_id": callback.message.message_id,
+        "context": context,
+        "ex_id": ex_id
     }
 
     await callback.answer(f"⏱ Таймер на {seconds} секунд запущен",
@@ -1231,8 +1280,7 @@ async def cb_start_timer(callback: CallbackQuery, session: AsyncSession):
 
     # Обновляем сообщение
     try:
-        if len(parts) > 3 and parts[3] == "ex":
-            ex_id = int(parts[4])
+        if context == "ex":
             result = await render_approach_screen(session, session_id, ex_id)
             if result:
                 text, kb = result
@@ -1243,7 +1291,7 @@ async def cb_start_timer(callback: CallbackQuery, session: AsyncSession):
                 text, kb = await _render_list(session, session_id, ws.user_id)
                 await callback.message.edit_text(text, reply_markup=kb)
     except Exception:
-        pass  # Игнорируем, если текст не изменился
+        pass
 
 
 @router.callback_query(F.data.startswith("tr_timer_custom:"))
@@ -1283,42 +1331,46 @@ async def fsm_timer_custom_save(message: Message, state: FSMContext,
     data = await state.get_data()
     session_id = data["session_id"]
     return_to = data.get("return_to")
+    ex_id = data.get("ex_id")
 
     import asyncio
     from datetime import datetime, timezone, timedelta
 
-    # Отменяем старый, если был
     if session_id in ACTIVE_TIMERS:
         ACTIVE_TIMERS[session_id]["task"].cancel()
 
-    # Запускаем и сохраняем в память
     task = asyncio.create_task(_run_rest_timer(
         message.bot, message.chat.id, session_id, seconds
     ))
     ACTIVE_TIMERS[session_id] = {
         "task": task,
         "duration": seconds,
-        "end_time": datetime.now(timezone.utc) + timedelta(seconds=seconds)
+        "end_time": datetime.now(timezone.utc) + timedelta(seconds=seconds),
+        "chat_id": message.chat.id,
+        "message_id": None,
+        "context": "ex" if return_to == "tr_ex_card" and ex_id else "list",
+        "ex_id": ex_id
     }
 
     await state.clear()
 
-    # Обновляем экран в зависимости от того, откуда пришли
-    if return_to == "tr_ex_card" and "ex_id" in data:
-        result = await render_approach_screen(session, session_id,
-                                              data["ex_id"])
+    if return_to == "tr_ex_card" and ex_id:
+        result = await render_approach_screen(session, session_id, ex_id)
         if result:
-            text, kb = result
-            await message.answer(
-                f"⏱ Таймер на {seconds} сек запущен.\n\n" + text,
+            text_screen, kb = result
+            sent_msg = await message.answer(
+                f"⏱ Таймер на {seconds} сек запущен.\n\n" + text_screen,
                 reply_markup=kb)
+            # ⬇️⬇️⬇️ СОХРАНЯЕМ ID СООБЩЕНИЯ ⬇️⬇️⬇️
+            ACTIVE_TIMERS[session_id]["message_id"] = sent_msg.message_id
     else:
         ws = await session.get(WorkoutSession, session_id)
         text_screen, kb = await _render_list(session, session_id, ws.user_id)
-        await message.answer(
+        sent_msg = await message.answer(
             f"⏱ Таймер на {seconds} сек запущен.\n\n" + text_screen,
-            reply_markup=kb
-        )
+            reply_markup=kb)
+        # ⬇️⬇️⬇️ СОХРАНЯЕМ ID СООБЩЕНИЯ ⬇️⬇️⬇️
+        ACTIVE_TIMERS[session_id]["message_id"] = sent_msg.message_id
 
 
 @router.callback_query(F.data.startswith("tr_refresh:"))

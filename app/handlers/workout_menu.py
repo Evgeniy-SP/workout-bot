@@ -597,26 +597,32 @@ async def cb_ex_move_up(callback: CallbackQuery, session: AsyncSession):
     if not ex:
         return await callback.answer("Не найдено", show_alert=True)
 
-    # Ищем упражнение, которое идет ПЕРЕД ним (только среди активных)
+    # Получаем ВСЕ активные упражнения, отсортированные по порядку
     result = await session.execute(
         select(Exercise)
-        .where(
-            Exercise.workout_type_id == ex.workout_type_id,
-            Exercise.sort_order < ex.sort_order,
-            Exercise.is_archived == False
-        )
-        .order_by(Exercise.sort_order.desc())
-        .limit(1)
+        .where(Exercise.workout_type_id == ex.workout_type_id,
+               Exercise.is_archived == False)
+        .order_by(Exercise.sort_order, Exercise.id)
     )
-    prev_ex = result.scalar_one_or_none()
+    exercises = list(result.scalars())
 
-    if not prev_ex:
+    try:
+        idx = exercises.index(ex)
+    except ValueError:
+        return await callback.answer("Ошибка", show_alert=True)
+
+    if idx == 0:
         return await callback.answer("Упражнение уже первое", show_alert=True)
 
-    # Меняем местами
-    ex.sort_order, prev_ex.sort_order = prev_ex.sort_order, ex.sort_order
+    # Меняем местами в списке
+    exercises[idx], exercises[idx - 1] = exercises[idx - 1], exercises[idx]
+
+    # Заново нумеруем (0, 1, 2, ...) чтобы не было "дыр" в порядке
+    for i, e in enumerate(exercises):
+        e.sort_order = i
     await session.commit()
 
+    # Перерисовываем карточку
     await callback.message.edit_text(
         await _render_ex_card(session, ex), reply_markup=exercise_card_kb(ex)
     )
@@ -630,26 +636,32 @@ async def cb_ex_move_down(callback: CallbackQuery, session: AsyncSession):
     if not ex:
         return await callback.answer("Не найдено", show_alert=True)
 
-    # Ищем упражнение, которое идет ПОСЛЕ него (только среди активных)
     result = await session.execute(
         select(Exercise)
-        .where(
-            Exercise.workout_type_id == ex.workout_type_id,
-            Exercise.sort_order > ex.sort_order,
-            Exercise.is_archived == False
-        )
-        .order_by(Exercise.sort_order.asc())
-        .limit(1)
+        .where(Exercise.workout_type_id == ex.workout_type_id,
+               Exercise.is_archived == False)
+        .order_by(Exercise.sort_order, Exercise.id)
     )
-    next_ex = result.scalar_one_or_none()
+    exercises = list(result.scalars())
 
-    if not next_ex:
-        return await callback.answer("Упражнение уже последнее", show_alert=True)
+    try:
+        idx = exercises.index(ex)
+    except ValueError:
+        return await callback.answer("Ошибка", show_alert=True)
 
-    # Меняем местами
-    ex.sort_order, next_ex.sort_order = next_ex.sort_order, ex.sort_order
+    if idx == len(exercises) - 1:
+        return await callback.answer("Упражнение уже последнее",
+                                     show_alert=True)
+
+    # Меняем местами в списке
+    exercises[idx], exercises[idx + 1] = exercises[idx + 1], exercises[idx]
+
+    # Заново нумеруем
+    for i, e in enumerate(exercises):
+        e.sort_order = i
     await session.commit()
 
+    # Перерисовываем карточку
     await callback.message.edit_text(
         await _render_ex_card(session, ex), reply_markup=exercise_card_kb(ex)
     )
