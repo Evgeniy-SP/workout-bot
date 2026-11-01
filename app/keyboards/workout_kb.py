@@ -126,12 +126,14 @@ def confirm_workout_delete_kb(wt_id: int, has_history: bool) -> InlineKeyboardMa
 
 
 def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
-                     sets_by_ex: dict,
-                     has_timer: bool = False) -> InlineKeyboardMarkup:
+                     sets_by_ex: dict, has_timer: bool = False,
+                     optional_count: int = 0) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     sizes = []
 
-    for i, ex in enumerate(exercises, start=1):
+    # Основной список: ТОЛЬКО обязательные упражнения
+    main_exercises = [ex for ex in exercises if not ex.is_optional]
+    for i, ex in enumerate(main_exercises, start=1):
         sets = sets_by_ex.get(ex.id, [])
         done_sets = sum(1 for s in sets if s.completed)
         plan_sets = (ex.sets or 0) if ex.kind == "strength" else 1
@@ -143,11 +145,15 @@ def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
         else:
             icon = "🟡"
 
-        opt = " (опц.)" if ex.is_optional else ""
         kind_icon = "🏋️" if ex.kind == "strength" else "🏃"
-
-        kb.button(text=f"{icon} {i}. {kind_icon} {ex.name}{opt}",
+        kb.button(text=f"{icon} {i}. {kind_icon} {ex.name}",
                   callback_data=f"tr_ex:{session_id}:{ex.id}")
+        sizes.append(1)
+
+    # Если есть опциональные — добавляем кнопку-папку
+    if optional_count > 0:
+        kb.button(text=f"⚪ Опциональные ({optional_count})",
+                  callback_data=f"tr_opt_list:{session_id}")
         sizes.append(1)
 
     # Таймеры в ряд
@@ -156,9 +162,9 @@ def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
               callback_data=f"tr_timer_custom:{session_id}:list")
     sizes.append(2)
 
-    # Кнопка остановки таймера (появляется только если таймер активен)
     if has_timer:
-        kb.button(text="⏹ Остановить таймер", callback_data=f"tr_timer_stop:{session_id}:list")
+        kb.button(text="⏹ Остановить таймер",
+                  callback_data=f"tr_timer_stop:{session_id}:list")
         sizes.append(1)
 
     kb.button(text="🔄 Обновить время отдыха",
@@ -177,7 +183,6 @@ def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
     kb.button(text="⬅️ В меню тренировки", callback_data=f"wt:{wt_id}")
     sizes.append(1)
 
-    # Применяем верстку
     kb.adjust(*sizes)
     return kb.as_markup()
 
@@ -433,4 +438,40 @@ def confirm_duplicate_kb() -> InlineKeyboardMarkup:
     kb.button(text="✅ Да, добавить", callback_data="dup_confirm")
     kb.button(text="❌ Отмена", callback_data="dup_cancel")
     kb.adjust(2)
+    return kb.as_markup()
+
+
+def edit_set_kb(session_id: int, set_id: int, can_delete: bool = False) -> InlineKeyboardMarkup:
+    """Клавиатура для экрана редактирования подхода."""
+    kb = InlineKeyboardBuilder()
+    if can_delete:
+        kb.button(text="🗑 Удалить подход", callback_data=f"tr_delete_set:{session_id}:{set_id}")
+    kb.button(text="❌ Отмена", callback_data="fsm_cancel")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def optional_list_kb(session_id: int, exercises: list[Exercise],
+                     sets_by_ex: dict) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for i, ex in enumerate(exercises, start=1):
+        sets = sets_by_ex.get(ex.id, [])
+        done_sets = sum(1 for s in sets if s.completed)
+        plan_sets = (ex.sets or 0) if ex.kind == "strength" else 1
+
+        if done_sets == 0:
+            icon = "⚪"
+        elif done_sets >= plan_sets:
+            icon = "✅"
+        else:
+            icon = "🟡"
+
+        kind_icon = "🏋️" if ex.kind == "strength" else "🏃"
+        kb.button(text=f"{icon} {i}. {kind_icon} {ex.name}",
+                  callback_data=f"tr_ex:{session_id}:{ex.id}")
+        kb.adjust(1)
+
+    kb.button(text="⬅️ К основной тренировке",
+              callback_data=f"tr_list:{session_id}")
+    kb.adjust(1)
     return kb.as_markup()

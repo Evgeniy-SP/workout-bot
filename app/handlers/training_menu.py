@@ -108,3 +108,18 @@ async def cb_open_exercise(callback: CallbackQuery, session: AsyncSession, state
     text, kb = result
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tr_opt_list:"))
+async def cb_optional_list(callback: CallbackQuery, session: AsyncSession,
+                           state: FSMContext):
+    await state.clear()
+    session_id = int(callback.data.split(":")[1])
+    ws = await session.get(WorkoutSession, session_id)
+    if not ws:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    from app.services.training_service import render_optional_list
+    text, kb = await render_optional_list(session, session_id, ws.user_id)
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()

@@ -16,7 +16,7 @@ from app.db.queries import (
     get_last_completed_set, get_last_note_for_exercise, get_sets_grouped,
 )
 from app.keyboards.workout_kb import (
-    approach_kb, cardio_done_kb, strength_summary_kb, training_list_kb,
+    approach_kb, cardio_done_kb, optional_list_kb, strength_summary_kb, training_list_kb,
 )
 from app.render import render_approach, render_strength_summary, \
     render_training_list
@@ -199,7 +199,7 @@ async def render_approach_screen(
 
 
 async def render_list(session: AsyncSession, session_id: int, user_id: int):
-    """Собирает (текст, клавиатуру) для экрана активной тренировки (список упражнений)."""
+    """Собирает (текст, клавиатуру) для экрана активной тренировки."""
     ws = await session.get(WorkoutSession, session_id)
     wt = await load_workout(session, ws.workout_type_id)
 
@@ -209,8 +209,6 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
 
     last_time = None
     last_ex_id = None
-
-    # Ищем самый свежий подход и запоминаем ID упражнения
     for ex_id, sets in sets_by_ex.items():
         for s in sets:
             if s.completed and s.completed_at:
@@ -220,7 +218,6 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
 
     rest_time_str = None
     last_ex_name = None
-
     if last_time:
         delta = datetime.now(timezone.utc) - last_time
         total_sec = int(delta.total_seconds())
@@ -228,8 +225,6 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
             m = total_sec // 60
             sec = total_sec % 60
             rest_time_str = f"{m} мин {sec} сек" if m > 0 else f"{sec} сек"
-
-        # Ищем название упражнения по ID
         if last_ex_id:
             for ex in wt.exercises:
                 if ex.id == last_ex_id:
@@ -243,14 +238,57 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
         if remaining > 0:
             timer_str = f"осталось {remaining} сек"
 
+    # Для текста передаем только обязательные, чтобы не захламлять
+    main_exercises = [ex for ex in exercises if not ex.is_optional]
+
     text = render_training_list(
-        wt, exercises, sets_by_ex, ws.started_at,
-        rest_time_str=rest_time_str,
-        timer_str=timer_str,
-        last_exercise_name=last_ex_name  # <--- ПЕРЕДАЕМ НАЗВАНИЕ
+        wt, main_exercises, sets_by_ex, ws.started_at,
+        rest_time_str=rest_time_str, timer_str=timer_str,
+        last_exercise_name=last_ex_name
     )
-    kb = training_list_kb(wt.id, session_id, exercises, sets_by_ex,
-                          has_timer=(timer_str is not None))
+
+    optional_count = sum(1 for e in exercises if e.is_optional)
+    kb = training_list_kb(
+        wt.id, session_id, exercises, sets_by_ex,
+        has_timer=(timer_str is not None), optional_count=optional_count
+    )
+    return text, kb
+
+
+async def render_optional_list(session: AsyncSession, session_id: int,
+                               user_id: int):
+    ws = await session.get(WorkoutSession, session_id)
+    wt = await load_workout(session, ws.workout_type_id)
+    sets_by_ex = await get_sets_grouped(session, session_id)
+
+    opt_exercises = [ex for ex in wt.exercises if ex.is_optional]
+
+    lines = [
+        f"⚪ <b>Опциональные упражнения</b>",
+        f"<i>{wt.name}</i>",
+        ""
+    ]
+
+    for i, ex in enumerate(opt_exercises, start=1):
+        sets = sets_by_ex.get(ex.id, [])
+        done_sets = sum(1 for s in sets if s.completed)
+        plan_sets = (ex.sets or 0) if ex.kind == "strength" else 1
+
+        if done_sets == 0:
+            icon = "⚪"
+            status = "не сделано"
+        elif done_sets >= plan_sets:
+            icon = "✅"
+            status = "сделано"
+        else:
+            icon = "🟡"
+            status = f"частично ({done_sets}/{plan_sets})"
+
+        kind_icon = "🏋️" if ex.kind == "strength" else "🏃"
+        lines.append(f"{icon} {i}. {kind_icon} <b>{ex.name}</b> — {status}")
+
+    text = "\n".join(lines)
+    kb = optional_list_kb(session_id, opt_exercises, sets_by_ex)
     return text, kb
 
 

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Exercise, SessionSet, WorkoutSession
 from app.db.queries import get_last_completed_set, get_sets_grouped
-from app.keyboards.workout_kb import approach_kb, cancel_kb
+from app.keyboards.workout_kb import approach_kb, cancel_kb, edit_set_kb
 from app.render import render_approach
 from app.services.training_service import (
     next_set_num, render_approach_screen, render_list,
@@ -141,14 +141,28 @@ async def fsm_enter_reps(message: Message, state: FSMContext,
     await state.update_data(custom_reps=int(text))
 
     await state.set_state(TrainingFSM.entering_weight)
-    ex = await session.get(Exercise, data["ex_id"])
-    ws = await session.get(WorkoutSession, data["session_id"])
-    last_set = await get_last_completed_set(session, ws.user_id, data["ex_id"])
-    suggested = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
+
+    editing_set_id = data.get("editing_set_id")
+
+    if editing_set_id:
+        # Если редактируем существующий подход — берем ЕГО вес
+        target = await session.get(SessionSet, editing_set_id)
+        suggested = target.weight_kg if target else None
+        prefix = "Сейчас"
+    else:
+        # Если делаем новый — берем из прошлой тренировки или плана
+        ex = await session.get(Exercise, data["ex_id"])
+        ws = await session.get(WorkoutSession, data["session_id"])
+        last_set = await get_last_completed_set(session, ws.user_id,
+                                                data["ex_id"])
+        suggested = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
+        prefix = "По умолчанию"
+
     suggestion = format_weight(suggested) if suggested else "без веса"
+
     await message.answer(
         f"Сколько весил снаряд?\n"
-        f"<i>По умолчанию: {suggestion}</i>\n\n"
+        f"<i>{prefix}: {suggestion}</i>\n\n"
         "Введи число или текст (например «Своё тело»). Или отправь «-», чтобы без веса:",
         reply_markup=cancel_kb(),
     )
@@ -289,3 +303,103 @@ async def _save_custom_set(message: Message, state: FSMContext,
     kb = approach_kb(session_id, ex, next_num, planned_reps, planned_weight,
                      ex.duration_seconds)
     await message.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("tr_edit_set:"))
+async def cb_edit_set(callback: CallbackQuery, session: AsyncSession,
+                      state: FSMContext):
+    _, sess_str, set_str = callback.data.split(":")
+    session_id = int(sess_str)
+    set_id = int(set_str)
+
+    target = await session.get(SessionSet, set_id)
+    if not target:
+        return await callback.answer("Подход не найден", show_alert=True)
+
+    ex = await session.get(Exercise, target.exercise_id)
+    if not ex:
+        return await callback.answer("Упражнение не найдено", show_alert=True)
+
+    weight_text = format_weight(target.weight_kg)
+
+    # Разрешаем удаление ТОЛЬКО если это подход сверх плана
+    plan = ex.sets or 0
+    can_delete = (ex.kind == "strength") and (target.set_number > plan)
+
+    await state.update_data(
+        session_id=session_id,
+        ex_id=ex.id,
+        editing_set_id=set_id,
+        return_to="tr_strength_summary",
+    )
+    await state.set_state(TrainingFSM.entering_reps)
+    await callback.message.edit_text(
+        f"<b>{ex.name}</b> — подход {target.set_number}\n\n"
+        f"Сейчас: <b>{target.reps} × {weight_text}</b>\n\n"
+        "Сколько повторов сделал на самом деле? Введи число:",
+        reply_markup=edit_set_kb(session_id, set_id, can_delete=can_delete),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tr_add_set:"))
+async def cb_add_set(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+    """Добавление подхода сверх плана (силовое)."""
+    _, sess_str, ex_str = callback.data.split(":")
+    session_id = int(sess_str)
+    ex_id = int(ex_str)
+
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    await state.update_data(
+        session_id=session_id,
+        ex_id=ex_id,
+        editing_set_id=None,   # создаём новый
+        return_to="tr_strength_summary",
+    )
+    await state.set_state(TrainingFSM.entering_reps)
+    await callback.message.edit_text(
+        f"<b>{ex.name}</b> — новый подход\n\n"
+        "Сколько повторов сделал? Введи число:",
+        reply_markup=cancel_kb(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tr_delete_set:"))
+async def cb_delete_set(callback: CallbackQuery, session: AsyncSession,
+                        state: FSMContext):
+    await state.clear()
+    _, sess_str, set_str = callback.data.split(":")
+    session_id = int(sess_str)
+    set_id = int(set_str)
+
+    target = await session.get(SessionSet, set_id)
+    if not target:
+        return await callback.answer("Подход уже удален", show_alert=True)
+
+    ex_id = target.exercise_id
+    await session.delete(target)
+    await session.commit()
+
+    # Перенумеровываем оставшиеся подходы, чтобы они шли 1, 2, 3... (без дырок)
+    sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+    for idx, s in enumerate(sets, start=1):
+        s.set_number = idx
+    await session.commit()
+
+    # Возвращаемся на экран подхода/итогов
+    result = await render_approach_screen(session, session_id, ex_id)
+    if result:
+        text, kb = result
+        await callback.message.edit_text("🗑 Подход удален.\n\n" + text,
+                                         reply_markup=kb)
+    else:
+        ws = await session.get(WorkoutSession, session_id)
+        text, kb = await render_list(session, session_id, ws.user_id)
+        await callback.message.edit_text("🗑 Подход удален.\n\n" + text,
+                                         reply_markup=kb)
+
+    await callback.answer("Подход удален")

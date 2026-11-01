@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User, WorkoutType
-from app.keyboards.workout_kb import workout_card_kb, workout_description_kb
+from app.keyboards.workout_kb import cancel_kb, workout_card_kb, workout_description_kb
 from app.render import render_workout_card
 from app.states import WorkoutCreate
 
@@ -20,9 +20,11 @@ async def _get_user(session: AsyncSession, tg_id: int) -> User | None:
 
 @router.callback_query(F.data == "wt_new")
 async def new_workout_start(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(return_to="wt_list")
     await state.set_state(WorkoutCreate.adding_type_name)
     await callback.message.edit_text(
-        "➕ Введи название новой тренировки:"
+        "➕ Введи название новой тренировки:",
+        reply_markup=cancel_kb()
     )
     await callback.answer()
 
@@ -31,7 +33,10 @@ async def new_workout_start(callback: CallbackQuery, state: FSMContext):
 async def new_workout_name(message: Message, state: FSMContext):
     name = message.text.strip()
     if not name or len(name) > 64:
-        return await message.answer("Название 1–64 символа. Попробуй ещё:")
+        return await message.answer(
+            "Название 1–64 символа. Попробуй ещё:",
+            reply_markup=cancel_kb()
+        )
 
     await state.update_data(type_name=name)
     await state.set_state(WorkoutCreate.adding_type_description)
