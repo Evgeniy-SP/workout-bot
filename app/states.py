@@ -30,7 +30,7 @@ class WorkoutCreate(StatesGroup):
     adding_exercise_reps = State()      # только для силовых
     adding_exercise_weight = State()    # только для силовых
     adding_exercise_duration = State()  # только для кардио/разминки
-
+    confirming_duplicate = State()
 
 class TrainingFSM(StatesGroup):
     """Ввод фактических значений во время тренировки."""
@@ -38,3 +38,4 @@ class TrainingFSM(StatesGroup):
     entering_weight = State()
     entering_duration = State()
     entering_exercise_note = State()
+    entering_rest_time = State()

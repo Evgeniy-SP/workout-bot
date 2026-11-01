@@ -26,6 +26,9 @@ from app.render import (
 from app.states import TrainingFSM
 from app.utils import format_duration, format_weight, parse_minutes_to_seconds
 
+# Хранилище таймеров: {session_id: {"task": Task, "duration": int, "end_time": datetime}}
+ACTIVE_TIMERS = {}
+
 router = Router()
 
 
@@ -56,18 +59,42 @@ async def _load_workout(session: AsyncSession, wt_id: int) -> WorkoutType | None
 
 
 async def _render_list(session: AsyncSession, session_id: int, user_id: int):
-    """Собрать (текст, клавиатуру) для экрана активной тренировки."""
     ws = await session.get(WorkoutSession, session_id)
     wt = await _load_workout(session, ws.workout_type_id)
 
-    # Сортируем: сначала обязательные (is_optional=False), потом опциональные.
-    # Внутри групп сохраняется исходный порядок (sort_order).
     exercises = sorted(wt.exercises,
                        key=lambda e: (e.is_optional, e.sort_order))
-
     sets_by_ex = await get_sets_grouped(session, session_id)
-    text = render_training_list(wt, exercises, sets_by_ex, ws.started_at)
-    kb = training_list_kb(wt.id, session_id, exercises, sets_by_ex)
+
+    # Считаем обычный отдых (от последнего подхода)
+    last_time = None
+    for sets in sets_by_ex.values():
+        for s in sets:
+            if s.completed and s.completed_at:
+                if last_time is None or s.completed_at > last_time:
+                    last_time = s.completed_at
+
+    rest_time_str = None
+    if last_time:
+        delta = datetime.now(timezone.utc) - last_time
+        total_sec = int(delta.total_seconds())
+        if total_sec >= 10:
+            m = total_sec // 60
+            sec = total_sec % 60
+            rest_time_str = f"{m} мин {sec} сек" if m > 0 else f"{sec} сек"
+
+    # Проверяем активный таймер
+    timer_str = None
+    if session_id in ACTIVE_TIMERS:
+        remaining = int((ACTIVE_TIMERS[session_id]["end_time"] - datetime.now(
+            timezone.utc)).total_seconds())
+        if remaining > 0:
+            timer_str = f"осталось {remaining} сек"
+
+    text = render_training_list(wt, exercises, sets_by_ex, ws.started_at,
+                                rest_time_str, timer_str)
+    kb = training_list_kb(wt.id, session_id, exercises, sets_by_ex,
+                          has_timer=(timer_str is not None))
     return text, kb
 
 
@@ -174,16 +201,38 @@ async def render_approach_screen(
                 last_reps if last_reps else ex.reps)
 
             can_remove = not sets
+
+            rest_time_str = None
+            if completed:
+                last_completed = completed[-1]
+                if last_completed.completed_at:
+                    delta = datetime.now(
+                        timezone.utc) - last_completed.completed_at
+                    total_sec = int(delta.total_seconds())
+
+                    # Показываем, только если прошло больше 10 секунд
+                    if total_sec >= 10:
+                        minutes = total_sec // 60
+                        seconds = total_sec % 60
+                        rest_time_str = f"{minutes} мин {seconds} сек" if minutes > 0 else f"{seconds} сек"
+            timer_str = None
+            if session_id in ACTIVE_TIMERS:
+                remaining = int((ACTIVE_TIMERS[session_id]["end_time"] - datetime.now(timezone.utc)).total_seconds())
+                if remaining > 0:
+                    timer_str = f"осталось {remaining} сек"
             text = render_approach(
-                ex, set_num, ex.reps, ex.weight_kg, ex.duration_seconds,
+                ex, set_num, ex.reps, ex.weight_kg, ex.duration_seconds, timer_str=timer_str,
                 last_reps=last_reps,
                 last_weight=last_weight,
                 last_note=last_note,
+                rest_time_str=rest_time_str
             )
             kb = approach_kb(
                 session_id, ex, set_num, action_reps, action_weight,
                 ex.duration_seconds, can_remove=can_remove,
-                use_history=bool(last_set)
+                use_history=bool(last_set),
+                is_first_set=(len(completed) == 0),
+                has_timer=(session_id in ACTIVE_TIMERS),
             )
 
     # Добавляем заметку (для силовых, если она есть)
@@ -342,6 +391,7 @@ async def cb_save_planned(callback: CallbackQuery, session: AsyncSession, state:
         weight_kg=planned_weight if ex.kind == "strength" else None,
         duration_seconds=planned_duration,  # <--- ТЕПЕРЬ БЕРЕТСЯ ИЗ ИСТОРИИ
         completed=True,
+        completed_at=datetime.now(timezone.utc)
     )
     session.add(new_set)
     await session.commit()
@@ -594,6 +644,7 @@ async def _save_custom_set(message: Message, state: FSMContext, session: AsyncSe
         target.reps = reps
         target.weight_kg = weight
         target.duration_seconds = duration
+        target.completed_at = datetime.now(timezone.utc)
         await session.commit()
 
         # Формируем сообщение «было → стало»
@@ -649,6 +700,7 @@ async def _save_custom_set(message: Message, state: FSMContext, session: AsyncSe
         weight_kg=weight,
         duration_seconds=duration,
         completed=True,
+        completed_at=datetime.now(timezone.utc)
     )
     session.add(new_set)
     await session.commit()
@@ -1116,3 +1168,224 @@ async def cb_note_ex_delete(callback: CallbackQuery, session: AsyncSession,
                                          reply_markup=kb)
 
     await callback.answer("Удалено")
+
+
+# ═══════════════════════════════════════════════════════════
+#  Таймер отдыха
+# ═══════════════════════════════════════════════════════════
+
+async def _run_rest_timer(bot, chat_id: int, session_id: int, seconds: int):
+    import asyncio
+    from app.db.session import async_session_maker
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    try:
+        await asyncio.sleep(seconds)
+        async with async_session_maker() as session:
+            ws = await session.get(WorkoutSession, session_id)
+            if not ws or ws.finished_at is not None:
+                return
+
+        msg = await bot.send_message(
+            chat_id=chat_id,
+            text=f"⏰ <b>Отдых окончен!</b> Пора делать следующий подход.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Понятно",
+                                      callback_data="tr_timer_dismiss")]
+            ])
+        )
+        await asyncio.sleep(15)
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+    finally:
+        ACTIVE_TIMERS.pop(session_id, None)
+
+
+@router.callback_query(F.data.startswith("tr_timer:"))
+@router.callback_query(F.data.startswith("tr_timer:"))
+async def cb_start_timer(callback: CallbackQuery, session: AsyncSession):
+    parts = callback.data.split(":")
+    seconds = int(parts[1])
+    session_id = int(parts[2])
+
+    if session_id in ACTIVE_TIMERS:
+        ACTIVE_TIMERS[session_id]["task"].cancel()
+
+    import asyncio
+    from datetime import datetime, timezone, timedelta
+
+    task = asyncio.create_task(_run_rest_timer(
+        callback.bot, callback.message.chat.id, session_id, seconds
+    ))
+
+    ACTIVE_TIMERS[session_id] = {
+        "task": task,
+        "duration": seconds,
+        "end_time": datetime.now(timezone.utc) + timedelta(seconds=seconds)
+    }
+
+    await callback.answer(f"⏱ Таймер на {seconds} секунд запущен",
+                          show_alert=True)
+
+    # Обновляем сообщение
+    try:
+        if len(parts) > 3 and parts[3] == "ex":
+            ex_id = int(parts[4])
+            result = await render_approach_screen(session, session_id, ex_id)
+            if result:
+                text, kb = result
+                await callback.message.edit_text(text, reply_markup=kb)
+        else:
+            ws = await session.get(WorkoutSession, session_id)
+            if ws:
+                text, kb = await _render_list(session, session_id, ws.user_id)
+                await callback.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        pass  # Игнорируем, если текст не изменился
+
+
+@router.callback_query(F.data.startswith("tr_timer_custom:"))
+async def cb_timer_custom_start(callback: CallbackQuery, state: FSMContext):
+    from app.keyboards.workout_kb import cancel_kb
+
+    parts = callback.data.split(":")
+    session_id = int(parts[1])
+
+    if parts[2] == "list":
+        # Обязательно передаем return_to_session для _resolve_cancel_view
+        await state.update_data(session_id=session_id,
+                                return_to_session=session_id,
+                                return_to="tr_list")
+    else:
+        ex_id = int(parts[3])
+        await state.update_data(session_id=session_id, ex_id=ex_id,
+                                return_to="tr_ex_card")
+
+    await state.set_state(TrainingFSM.entering_rest_time)
+    await callback.message.edit_text(
+        "⏱ <b>Своё время отдыха</b>\n\nВведи количество секунд (например, 45):",
+        reply_markup=cancel_kb()
+    )
+    await callback.answer()
+
+
+@router.message(TrainingFSM.entering_rest_time)
+async def fsm_timer_custom_save(message: Message, state: FSMContext,
+                                session: AsyncSession):
+    text = message.text.strip()
+    if not text.isdigit() or int(text) <= 0:
+        return await message.answer(
+            "Нужно целое число больше 0. Попробуй ещё:")
+
+    seconds = int(text)
+    data = await state.get_data()
+    session_id = data["session_id"]
+    return_to = data.get("return_to")
+
+    import asyncio
+    from datetime import datetime, timezone, timedelta
+
+    # Отменяем старый, если был
+    if session_id in ACTIVE_TIMERS:
+        ACTIVE_TIMERS[session_id]["task"].cancel()
+
+    # Запускаем и сохраняем в память
+    task = asyncio.create_task(_run_rest_timer(
+        message.bot, message.chat.id, session_id, seconds
+    ))
+    ACTIVE_TIMERS[session_id] = {
+        "task": task,
+        "duration": seconds,
+        "end_time": datetime.now(timezone.utc) + timedelta(seconds=seconds)
+    }
+
+    await state.clear()
+
+    # Обновляем экран в зависимости от того, откуда пришли
+    if return_to == "tr_ex_card" and "ex_id" in data:
+        result = await render_approach_screen(session, session_id,
+                                              data["ex_id"])
+        if result:
+            text, kb = result
+            await message.answer(
+                f"⏱ Таймер на {seconds} сек запущен.\n\n" + text,
+                reply_markup=kb)
+    else:
+        ws = await session.get(WorkoutSession, session_id)
+        text_screen, kb = await _render_list(session, session_id, ws.user_id)
+        await message.answer(
+            f"⏱ Таймер на {seconds} сек запущен.\n\n" + text_screen,
+            reply_markup=kb
+        )
+
+
+@router.callback_query(F.data.startswith("tr_refresh:"))
+async def cb_refresh_approach(callback: CallbackQuery, session: AsyncSession):
+    _, sess_str, ex_str = callback.data.split(":")
+    session_id = int(sess_str)
+    ex_id = int(ex_str)
+
+    result = await render_approach_screen(session, session_id, ex_id)
+    if result:
+        text, kb = result
+        try:
+            await callback.message.edit_text(text, reply_markup=kb)
+        except Exception:
+            pass # Игнорируем ошибку, если время не изменилось и текст остался тем же
+    await callback.answer("Время обновлено")
+
+
+@router.callback_query(F.data.startswith("tr_refresh_list:"))
+async def cb_refresh_list(callback: CallbackQuery, session: AsyncSession):
+    session_id = int(callback.data.split(":")[1])
+    ws = await session.get(WorkoutSession, session_id)
+    if not ws:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    text, kb = await _render_list(session, session_id, ws.user_id)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        pass
+    await callback.answer("Время обновлено")
+
+
+@router.callback_query(F.data == "tr_timer_dismiss")
+async def cb_timer_dismiss(callback: CallbackQuery):
+    """Удаляем сообщение таймера по кнопке."""
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tr_timer_stop:"))
+async def cb_timer_stop(callback: CallbackQuery, session: AsyncSession):
+    parts = callback.data.split(":")
+    session_id = int(parts[1])
+
+    if session_id in ACTIVE_TIMERS:
+        ACTIVE_TIMERS[session_id]["task"].cancel()
+        ACTIVE_TIMERS.pop(session_id, None)
+
+    try:
+        if len(parts) > 3 and parts[2] == "ex":
+            ex_id = int(parts[3])
+            result = await render_approach_screen(session, session_id, ex_id)
+            if result:
+                text, kb = result
+                await callback.message.edit_text(
+                    "⏹ Таймер остановлен.\n\n" + text, reply_markup=kb)
+        else:
+            ws = await session.get(WorkoutSession, session_id)
+            if ws:
+                text, kb = await _render_list(session, session_id, ws.user_id)
+                await callback.message.edit_text(
+                    "⏹ Таймер остановлен.\n\n" + text, reply_markup=kb)
+    except Exception:
+        pass
+
+    await callback.answer("Таймер остановлен")

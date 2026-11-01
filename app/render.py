@@ -30,8 +30,9 @@ def render_exercise_card(ex: Exercise) -> str:
 
 
 def render_training_list(wt: WorkoutType, exercises: list[Exercise],
-                         sets_by_ex: dict, session_started: datetime) -> str:
-    """Текст экрана активной тренировки. Кардио показывает фактическое время."""
+                         sets_by_ex: dict, session_started: datetime,
+                         rest_time_str: str | None = None,
+                         timer_str: str | None = None) -> str:
     from app.utils import fmt_msk_datetime, format_duration
 
     lines = [
@@ -61,7 +62,6 @@ def render_training_list(wt: WorkoutType, exercises: list[Exercise],
         if ex.kind == "strength":
             progress = f"{done_sets}/{plan_sets}"
         else:
-            # кардио — показываем фактическую длительность
             completed = [s for s in sets if s.completed]
             if completed and completed[0].duration_seconds:
                 progress = format_duration(completed[0].duration_seconds)
@@ -78,6 +78,13 @@ def render_training_list(wt: WorkoutType, exercises: list[Exercise],
             done_ex += 1
 
     lines.append("")
+
+    # Выводим ТОЛЬКО что-то одно: либо таймер, либо отдых
+    if timer_str:
+        lines.append(f"⏱ <b>Таймер:</b> {timer_str}")
+    elif rest_time_str:
+        lines.append(f"⏱ <i>Отдых: {rest_time_str}</i>")
+
     lines.append(f"📊 Выполнено: <b>{done_ex} / {total_ex}</b> упражнений")
     return "\n".join(lines)
 
@@ -87,7 +94,9 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
                     last_reps: int | None = None,
                     last_weight: str | None = None,
                     last_note: str | None = None,
-                    last_duration: int | None = None) -> str:  # <--- НОВЫЙ ПАРАМЕТР
+                    last_duration: int | None = None,
+                    rest_time_str: str | None = None,
+                    timer_str: str | None = None) -> str:  # <--- ВОТ ЗДЕСЬ ДОЛЖЕН БЫТЬ ПАРАМЕТР
     from app.utils import format_duration
 
     if ex.kind == "strength":
@@ -104,6 +113,12 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
         if last_note:
             header += f"\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>"
 
+        if rest_time_str:
+            header += f"\n⏱ <i>Отдых: {rest_time_str}</i>"
+
+        if timer_str:
+            header += f"\n⏱ <b>Таймер:</b> {timer_str}"
+
         return (
             f"<b>{ex.name}</b>\n\n"
             f"Подход <b>{set_num}</b> из {ex.sets}\n"
@@ -111,13 +126,12 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
         )
 
     # ─── КАРДИО ───
-    # Заменили "Прошлый раз" на "Предыдущая тренировка"
     if last_duration:
         duration_header = f"Предыдущая тренировка: <b>{format_duration(last_duration)}</b>"
     else:
         duration_header = f"План: <b>{format_duration(planned_duration)}</b>"
 
-    note_text = f"\n\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>" if last_note else ""
+    note_text = f"\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>" if last_note else ""
 
     return (
         f"<b>{ex.name}</b>\n\n"

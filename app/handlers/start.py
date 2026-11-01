@@ -8,14 +8,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User, WorkoutType
-from app.db.seed import create_default_workout
 
 router = Router()
 
 
+# Импорт create_default_workout можно убрать, если он больше нигде не нужен
+# from app.db.seed import create_default_workout
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, session: AsyncSession, state: FSMContext) -> None:
-    await state.clear()  # на случай, если пользователь застрял в FSM
+    await state.clear()
     tg = message.from_user
     result = await session.execute(select(User).where(User.tg_id == tg.id))
     user = result.scalar_one_or_none()
@@ -24,13 +27,12 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext) 
         user = User(tg_id=tg.id, username=tg.username, full_name=tg.full_name)
         session.add(user)
         await session.flush()
-        await create_default_workout(session, user)
-        await session.commit()
+        await session.commit()  # <--- Здесь больше нет вызова create_default_workout
         await message.answer(
             f"👋 Привет, <b>{tg.full_name}</b>!\n\n"
-            "Я создал твою первую тренировку <b>«Ноги и плечи»</b>.\n\n"
-            "• /workout — меню тренировок\n"
-            "• /done — отметить выполненной"
+            "Добро пожаловать в бот для тренировок!\n\n"
+            "У тебя пока нет созданных тренировок. "
+            "Нажми /workout, чтобы создать свою первую программу."
         )
     else:
         user.username = tg.username

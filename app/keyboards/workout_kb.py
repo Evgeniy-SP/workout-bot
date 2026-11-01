@@ -126,29 +126,57 @@ def confirm_workout_delete_kb(wt_id: int, has_history: bool) -> InlineKeyboardMa
 
 
 def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
-                     sets_by_ex: dict) -> InlineKeyboardMarkup:
-    """Список упражнений в активной тренировке."""
+                     sets_by_ex: dict,
+                     has_timer: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    sizes = []
+
     for i, ex in enumerate(exercises, start=1):
         sets = sets_by_ex.get(ex.id, [])
         done_sets = sum(1 for s in sets if s.completed)
         plan_sets = (ex.sets or 0) if ex.kind == "strength" else 1
+
         if done_sets == 0:
             icon = "⚪"
         elif done_sets >= plan_sets:
             icon = "✅"
         else:
             icon = "🟡"
-        opt = " (опц.)" if ex.is_optional else ""
 
+        opt = " (опц.)" if ex.is_optional else ""
         kb.button(text=f"{icon} {i}. {ex.name}{opt}",
                   callback_data=f"tr_ex:{session_id}:{ex.id}")
+        sizes.append(1)
 
-    kb.button(text="➕ Добавить упражнение", callback_data=f"tr_ex_add:{session_id}")   # ← новая
-    kb.button(text="🗑 Убрать упражнение", callback_data=f"tr_remove_menu:{session_id}")
-    kb.button(text="🏁 Завершить тренировку", callback_data=f"tr_finish:{session_id}")
+    # Таймеры в ряд
+    kb.button(text="⏱ 3 мин", callback_data=f"tr_timer:180:{session_id}:list")
+    kb.button(text="⏱ Своё время",
+              callback_data=f"tr_timer_custom:{session_id}:list")
+    sizes.append(2)
+
+    # Кнопка остановки таймера (появляется только если таймер активен)
+    if has_timer:
+        kb.button(text="⏹ Остановить таймер", callback_data=f"tr_timer_stop:{session_id}:list")
+        sizes.append(1)
+
+    kb.button(text="🔄 Обновить время отдыха",
+              callback_data=f"tr_refresh_list:{session_id}")
+    sizes.append(1)
+
+    kb.button(text="➕ Добавить упражнение",
+              callback_data=f"tr_ex_add:{session_id}")
+    sizes.append(1)
+    kb.button(text="🗑 Убрать упражнение",
+              callback_data=f"tr_remove_menu:{session_id}")
+    sizes.append(1)
+    kb.button(text="🏁 Завершить тренировку",
+              callback_data=f"tr_finish:{session_id}")
+    sizes.append(1)
     kb.button(text="⬅️ В меню тренировки", callback_data=f"wt:{wt_id}")
-    kb.adjust(1)
+    sizes.append(1)
+
+    # Применяем верстку
+    kb.adjust(*sizes)
     return kb.as_markup()
 
 
@@ -156,40 +184,70 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                 planned_reps: int | None, planned_weight: str | None,
                 planned_duration: int | None,
                 can_remove: bool = False,
-                use_history: bool = False) -> InlineKeyboardMarkup:
+                use_history: bool = False,
+                is_first_set: bool = True,
+                has_timer: bool = False) -> InlineKeyboardMarkup:  # <-- НОВЫЙ ПАРАМЕТР
     kb = InlineKeyboardBuilder()
+    sizes = []
+
     if ex.kind == "strength":
         weight_text = format_weight(planned_weight)
-        # Если есть история, пишем "Как в прошлый раз", иначе "Как планировал"
-        btn_text = f"✅ Предыдущий подход: {planned_reps} × {weight_text}" if use_history else f"✅ Как планировал: {planned_reps} × {weight_text}"
-        kb.button(
-            text=btn_text,
-            callback_data=f"tr_save_planned:{session_id}:{ex.id}",
-        )
+        if use_history:
+            if is_first_set:
+                btn_text = f"✅ Как на прошлой тренировке: {planned_reps} × {weight_text}"
+            else:
+                btn_text = f"✅ Предыдущий подход: {planned_reps} × {weight_text}"
+        else:
+            btn_text = f"✅ Как планировал: {planned_reps} × {weight_text}"
+
+        kb.button(text=btn_text,
+                  callback_data=f"tr_save_planned:{session_id}:{ex.id}")
+        sizes.append(1)
         kb.button(text="✏️ Ввести фактически",
                   callback_data=f"tr_custom:{session_id}:{ex.id}")
+        sizes.append(1)
     else:
         from app.utils import format_duration
         duration_text = format_duration(planned_duration)
-
-        # Если есть история, пишем "Как в прошлый раз", иначе "Как планировал"
         btn_text = f"✅ Как на предыдущей тренировке: {duration_text}" if use_history else f"✅ Как планировал: {duration_text}"
-
-        kb.button(
-            text=btn_text,
-            callback_data=f"tr_save_planned:{session_id}:{ex.id}",
-        )
+        kb.button(text=btn_text,
+                  callback_data=f"tr_save_planned:{session_id}:{ex.id}")
+        sizes.append(1)
         kb.button(text="✏️ Ввести фактически",
                   callback_data=f"tr_custom:{session_id}:{ex.id}")
+        sizes.append(1)
 
     if can_remove:
         kb.button(text="🗑 Убрать упражнение",
                   callback_data=f"tr_remove:{session_id}:{ex.id}")
+        sizes.append(1)
 
-    kb.button(text="📝 Заметка", callback_data=f"tr_note_ex:{session_id}:{ex.id}")
+    if ex.kind == "strength":
+        kb.button(text="⏱ 60с",
+                  callback_data=f"tr_timer:60:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱ 90с",
+                  callback_data=f"tr_timer:90:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱ Своё время",
+                  callback_data=f"tr_timer_custom:{session_id}:ex:{ex.id}")
+        sizes.append(3)
+
+        if has_timer:  # <-- КНОПКА ОСТАНОВКИ
+            kb.button(text="⏹ Остановить таймер",
+                      callback_data=f"tr_timer_stop:{session_id}:ex:{ex.id}")
+            sizes.append(1)
+
+        kb.button(text="🔄 Обновить время отдыха",
+                  callback_data=f"tr_refresh:{session_id}:{ex.id}")
+        sizes.append(1)
+
+    kb.button(text="📝 Заметка",
+              callback_data=f"tr_note_ex:{session_id}:{ex.id}")
+    sizes.append(1)
     kb.button(text="⬅️ К списку упражнений",
               callback_data=f"tr_list:{session_id}")
-    kb.adjust(1)
+    sizes.append(1)
+
+    kb.adjust(*sizes)
     return kb.as_markup()
 
 
@@ -364,4 +422,12 @@ def archived_workout_card_kb(wt_id: int, has_conflict: bool = False) -> InlineKe
     kb.button(text="🔥 Удалить навсегда", callback_data=f"wt_arch_del_ask:{wt_id}")
     kb.button(text="⬅️ К архиву", callback_data="wt_arch_list")
     kb.adjust(1)
+    return kb.as_markup()
+
+
+def confirm_duplicate_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Да, добавить", callback_data="dup_confirm")
+    kb.button(text="❌ Отмена", callback_data="dup_cancel")
+    kb.adjust(2)
     return kb.as_markup()

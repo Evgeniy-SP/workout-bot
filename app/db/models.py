@@ -114,6 +114,7 @@ class SessionSet(Base):
     weight_kg: Mapped[str | None] = mapped_column(String(32))
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     session: Mapped["WorkoutSession"] = relationship(back_populates="sets")
 

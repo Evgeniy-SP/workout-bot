@@ -75,9 +75,12 @@ async def cmd_workout(message: Message, session: AsyncSession, state: FSMContext
     )
     workouts = list(result.scalars())
     if not workouts:
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        kb = InlineKeyboardBuilder()
+        kb.button(text="➕ Новая тренировка", callback_data="wt_new")
         return await message.answer(
-            "У тебя нет активных тренировок.\n"
-            "Создай новую: /workout → «➕ Новая тренировка»"
+            "У тебя пока нет тренировок.\nДавай создадим первую!",
+            reply_markup=kb.as_markup()
         )
 
     from app.db.queries import get_active_session
