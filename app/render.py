@@ -29,12 +29,12 @@ def render_exercise_card(ex: Exercise) -> str:
     )
 
 
-def render_training_list(wt: WorkoutType, exercises: list[Exercise],
+def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
+                         visible_exercises: list[Exercise],
                          sets_by_ex: dict, session_started: datetime,
                          rest_time_str: str | None = None,
                          timer_str: str | None = None,
-                         last_exercise_name: str | None = None
-                         ) -> str:
+                         last_exercise_name: str | None = None) -> str:
     from app.utils import fmt_msk_datetime, format_duration
 
     lines = [
@@ -43,10 +43,22 @@ def render_training_list(wt: WorkoutType, exercises: list[Exercise],
         "",
     ]
 
+    # 1. Считаем прогресс по ВСЕМ упражнениям (включая опциональные)
     done_ex = 0
     total_ex = 0
+    for ex in all_exercises:
+        sets = sets_by_ex.get(ex.id, [])
+        done_sets = sum(1 for s in sets if s.completed)
+        plan_sets = (ex.sets or 0) if ex.kind == "strength" else 1
+        is_done = done_sets >= plan_sets
 
-    for i, ex in enumerate(exercises, start=1):
+        if not ex.is_optional or done_sets > 0:
+            total_ex += 1
+        if is_done:
+            done_ex += 1
+
+    # 2. Выводим в список ТОЛЬКО видимые (обязательные) упражнения
+    for i, ex in enumerate(visible_exercises, start=1):
         sets = sets_by_ex.get(ex.id, [])
         done_sets = sum(1 for s in sets if s.completed)
         plan_sets = (ex.sets or 0) if ex.kind == "strength" else 1
@@ -74,16 +86,10 @@ def render_training_list(wt: WorkoutType, exercises: list[Exercise],
 
         lines.append(f"{icon} {i}. <b>{ex.name}</b>{opt} — {progress}")
 
-        if not ex.is_optional or done_sets > 0:
-            total_ex += 1
-        if is_done:
-            done_ex += 1
-
     lines.append("")
 
     if timer_str:
         lines.append(f"⏱ <b>Таймер:</b> {timer_str}")
-
     if rest_time_str:
         if last_exercise_name:
             lines.append(

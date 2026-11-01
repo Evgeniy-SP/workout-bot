@@ -242,8 +242,13 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
     main_exercises = [ex for ex in exercises if not ex.is_optional]
 
     text = render_training_list(
-        wt, main_exercises, sets_by_ex, ws.started_at,
-        rest_time_str=rest_time_str, timer_str=timer_str,
+        wt,
+        exercises,
+        main_exercises,
+        sets_by_ex,
+        ws.started_at,
+        rest_time_str=rest_time_str,
+        timer_str=timer_str,
         last_exercise_name=last_ex_name
     )
 
