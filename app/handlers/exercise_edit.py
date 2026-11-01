@@ -66,9 +66,9 @@ async def _resolve_cancel_view(
 
     # 3. Список упражнений
     if return_to == "ex_list" and "wt_id" in data:
-        from app.handlers.workout_menu import _load_workout_with_exercises
+        from app.services.training_service import load_workout_with_exercises
         from app.keyboards.workout_kb import exercises_list_kb
-        wt = await _load_workout_with_exercises(session, data["wt_id"])
+        wt = await load_workout_with_exercises(session, data["wt_id"])
         if wt:
             return (
                 f"❌ Отменено.\n\n📋 Упражнения — <b>{wt.name}</b>",

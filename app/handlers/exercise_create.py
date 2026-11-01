@@ -60,13 +60,15 @@ async def after_kind(callback: CallbackQuery, state: FSMContext):
 async def add_name(message: Message, state: FSMContext, session: AsyncSession):
     name = message.text.strip()
     if not name or len(name) > 128:
-        return await message.answer("Название 1–128 символов. Попробуй ещё:")
+        return await message.answer("Название 1–128 символов. Попробуй ещё:",
+                                    reply_markup=cancel_kb())
 
     data = await state.get_data()
     wt_id = data["wt_id"]
     kind = data["kind"]
 
-    # Проверяем, есть ли уже такое активное упражнение
+    # Проверяем на дубликат
+
     existing = await session.scalar(
         select(Exercise).where(
             Exercise.workout_type_id == wt_id,
@@ -86,7 +88,7 @@ async def add_name(message: Message, state: FSMContext, session: AsyncSession):
         )
         return
 
-    # Если дубликата нет — идем дальше как обычно
+    # Если дубликата нет — идем дальше
     await state.update_data(name=name)
     if kind == "strength":
         await state.set_state(WorkoutCreate.adding_exercise_sets)
@@ -130,7 +132,7 @@ async def dup_confirm(callback: CallbackQuery, state: FSMContext):
 async def dup_cancel(callback: CallbackQuery, state: FSMContext,
                      session: AsyncSession):
     from app.keyboards.workout_kb import exercises_list_kb
-    from app.handlers.workout_menu import _load_workout_with_exercises
+    from app.services.training_service import load_workout_with_exercises
 
     # Достаем ID тренировки, куда мы добавляли упражнение
     data = await state.get_data()
@@ -141,7 +143,7 @@ async def dup_cancel(callback: CallbackQuery, state: FSMContext,
 
     # Возвращаемся в список упражнений
     if wt_id:
-        wt = await _load_workout_with_exercises(session, wt_id)
+        wt = await load_workout_with_exercises(session, wt_id)
         if wt:
             await callback.message.edit_text(
                 f"❌ Добавление отменено.\n\n📋 Упражнения — <b>{wt.name}</b>",

@@ -44,9 +44,9 @@ def exercises_list_kb(exercises: list[Exercise], wt_id: int) -> InlineKeyboardMa
         opt = " (опц.)" if ex.is_optional else ""
         if ex.kind == "strength":
             weight = f" · {format_weight(ex.weight_kg)}" if ex.weight_kg else ""
-            text = f"{ex.name}{opt} · {ex.sets}×{ex.reps}{weight}"
+            text = f"🏋️ {ex.name}{opt} · {ex.sets}×{ex.reps}{weight}"
         else:
-            text = f"{ex.name}{opt} · {format_duration(ex.duration_seconds)}"
+            text = f"🏃 {ex.name}{opt} · {format_duration(ex.duration_seconds)}"
         kb.button(text=text, callback_data=f"ex:{ex.id}")
     kb.button(text="➕ Добавить упражнение", callback_data=f"ex_new:{wt_id}")
     kb.button(text="⬅️ В меню тренировки", callback_data=f"wt:{wt_id}")
@@ -144,7 +144,9 @@ def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
             icon = "🟡"
 
         opt = " (опц.)" if ex.is_optional else ""
-        kb.button(text=f"{icon} {i}. {ex.name}{opt}",
+        kind_icon = "🏋️" if ex.kind == "strength" else "🏃"
+
+        kb.button(text=f"{icon} {i}. {kind_icon} {ex.name}{opt}",
                   callback_data=f"tr_ex:{session_id}:{ex.id}")
         sizes.append(1)
 
@@ -328,11 +330,12 @@ def archive_list_kb(grouped_exercises: list[tuple[Exercise, int]],
                     wt_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for ex, count in grouped_exercises:
+        kind_icon = "🏋️" if ex.kind == "strength" else "🏃"
         if ex.kind == "strength":
             weight = f" · {format_weight(ex.weight_kg)}" if ex.weight_kg else ""
-            text = f"📦 {ex.name} ({ex.sets}×{ex.reps}{weight})"
+            text = f"📦 {kind_icon} {ex.name} ({ex.sets}×{ex.reps}{weight})"
         else:
-            text = f"📦 {ex.name} (кардио)"
+            text = f"📦 {kind_icon} {ex.name} (кардио)"
 
         if count > 1:
             text += f" [x{count}]"

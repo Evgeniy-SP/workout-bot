@@ -252,3 +252,17 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
     kb = training_list_kb(wt.id, session_id, exercises, sets_by_ex,
                           has_timer=(timer_str is not None))
     return text, kb
+
+
+async def load_workout_with_exercises(session: AsyncSession, wt_id: int):
+    """Загружает тренировку со всеми (в т.ч. архивными) упражнениями."""
+    from app.db.models import Exercise
+    result = await session.execute(
+        select(WorkoutType)
+        .where(WorkoutType.id == wt_id)
+        .options(
+            selectinload(WorkoutType.exercises.and_(Exercise.is_archived.is_(False)))
+        )
+    )
+    return result.scalar_one_or_none()
+

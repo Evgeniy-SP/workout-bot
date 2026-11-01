@@ -105,6 +105,7 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
                     timer_str: str | None = None) -> str:
     from app.utils import format_duration
 
+    # ─── СИЛОВОЕ ───
     if ex.kind == "strength":
         if last_reps or last_weight:
             display_reps = last_reps if last_reps else planned_reps
@@ -124,9 +125,11 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
         if rest_time_str:
             header += f"\n⏱ <i>Отдых: {rest_time_str}</i>"
 
+        done = set_num - 1
         return (
             f"<b>{ex.name}</b>\n\n"
-            f"Подход <b>{set_num}</b> из {ex.sets}\n"
+            f"Выполнено подходов: <b>{done}</b> из {ex.sets}\n"
+            f"Текущий: <b>Подход {set_num}</b>\n"
             f"{header}"
         )
 

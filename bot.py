@@ -10,9 +10,8 @@ from app.config import settings
 from app.db.session import init_db
 from app.handlers import (
     exercise_create, exercise_edit, start,
-    training_finish, training_menu, training_notes,
-    training_sets, training_timers,
-    workout_create, workout_menu
+    training_finish, training_menu, training_notes, training_sets, training_timers,
+    workout_archive, workout_create, workout_crud, workout_view,
 )
 from app.middlewares.db import DbSessionMiddleware
 
@@ -32,17 +31,18 @@ async def main() -> None:
     # Порядок роутеров важен: общие команды → навигация → FSM-редактирование
     dp.include_routers(
         start.router,
-        exercise_edit.router,  # Должен быть раньше FSM-диалогов
+        exercise_edit.router,
         training_menu.router,
         training_sets.router,
         training_timers.router,
         training_notes.router,
         training_finish.router,
-        workout_menu.router,
+        workout_view.router,
+        workout_crud.router,
+        workout_archive.router,
         workout_create.router,
         exercise_create.router,
     )
-
     logging.info("Бот запущен")
     try:
         await dp.start_polling(bot)
