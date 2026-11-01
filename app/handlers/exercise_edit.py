@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Exercise, WorkoutType
 from app.keyboards.workout_kb import cancel_kb, exercise_card_kb, workout_card_kb
 from app.render import render_exercise_card, render_workout_card
+from app.services.training_service import render_approach_screen, render_list
 from app.states import WorkoutEdit
 from app.utils import format_weight, parse_minutes_to_seconds
 
@@ -37,19 +38,17 @@ async def _resolve_cancel_view(
     # 1. Подход в активной тренировке (ввод повторов/веса/времени)
     if return_to == "tr_ex_card" and "ex_id" in data and "session_id" in data:
         from app.db.models import WorkoutSession
-        from app.handlers.training import render_approach_screen, _render_list
         result = await render_approach_screen(session, data["session_id"], data["ex_id"])
         if result:
             return "❌ Отменено.\n\n" + result[0], result[1]
         ws = await session.get(WorkoutSession, data["session_id"])
         if ws:
-            text, kb = await _render_list(session, data["session_id"], ws.user_id)
+            text, kb = await render_list(session, data["session_id"], ws.user_id)
             return "❌ Отменено.\n\n" + text, kb
         return "❌ Отменено.", None
 
     # 1.5. Экран итогов силового упражнения
     if return_to == "tr_strength_summary" and "ex_id" in data and "session_id" in data:
-        from app.handlers.training import render_approach_screen
         result = await render_approach_screen(session, data["session_id"], data["ex_id"])
         if result:
             return "❌ Отменено.\n\n" + result[0], result[1]
@@ -80,11 +79,10 @@ async def _resolve_cancel_view(
     # 4. Экран активной тренировки
     if return_to == "tr_list" and "return_to_session" in data:
         from app.db.models import WorkoutSession
-        from app.handlers.training import _render_list
         session_id = data["return_to_session"]
         ws = await session.get(WorkoutSession, session_id)
         if ws:
-            text, kb = await _render_list(session, session_id, ws.user_id)
+            text, kb = await render_list(session, session_id, ws.user_id)
             return "❌ Отменено.\n\n" + text, kb
         return "❌ Отменено.", None
 

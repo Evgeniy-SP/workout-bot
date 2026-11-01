@@ -8,9 +8,12 @@ from aiogram.enums import ParseMode
 
 from app.config import settings
 from app.db.session import init_db
-from app.handlers import (exercise_create, exercise_edit, start, training,
-                          workout_create, workout_menu
-                          )
+from app.handlers import (
+    exercise_create, exercise_edit, start,
+    training_finish, training_menu, training_notes,
+    training_sets, training_timers,
+    workout_create, workout_menu
+)
 from app.middlewares.db import DbSessionMiddleware
 
 logging.basicConfig(level=logging.INFO)
@@ -29,8 +32,12 @@ async def main() -> None:
     # Порядок роутеров важен: общие команды → навигация → FSM-редактирование
     dp.include_routers(
         start.router,
-        exercise_edit.router,
-        training.router,
+        exercise_edit.router,  # Должен быть раньше FSM-диалогов
+        training_menu.router,
+        training_sets.router,
+        training_timers.router,
+        training_notes.router,
+        training_finish.router,
         workout_menu.router,
         workout_create.router,
         exercise_create.router,

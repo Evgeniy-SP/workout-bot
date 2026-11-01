@@ -254,14 +254,14 @@ async def _finish(message: Message, state: FSMContext, session: AsyncSession):
     await state.clear()
 
     if return_session:
-        from app.handlers.training import _render_list
+        from app.services.training_service import render_list
         from app.db.models import User
         uresult = await session.execute(
             select(User).where(User.tg_id == message.from_user.id)
         )
         user = uresult.scalar_one_or_none()
         if user:
-            text, kb = await _render_list(session, return_session, user.id)
+            text, kb = await render_list(session, return_session, user.id)
             await message.answer(
                 f"✅ Добавлено: <b>{ex.name}</b>\n\n" + text,
                 reply_markup=kb,

@@ -32,7 +32,9 @@ def render_exercise_card(ex: Exercise) -> str:
 def render_training_list(wt: WorkoutType, exercises: list[Exercise],
                          sets_by_ex: dict, session_started: datetime,
                          rest_time_str: str | None = None,
-                         timer_str: str | None = None) -> str:
+                         timer_str: str | None = None,
+                         last_exercise_name: str | None = None
+                         ) -> str:
     from app.utils import fmt_msk_datetime, format_duration
 
     lines = [
@@ -79,11 +81,15 @@ def render_training_list(wt: WorkoutType, exercises: list[Exercise],
 
     lines.append("")
 
-    # Выводим ТОЛЬКО что-то одно: либо таймер, либо отдых
     if timer_str:
         lines.append(f"⏱ <b>Таймер:</b> {timer_str}")
-    elif rest_time_str:
-        lines.append(f"⏱ <i>Отдых: {rest_time_str}</i>")
+
+    if rest_time_str:
+        if last_exercise_name:
+            lines.append(
+                f"⏱ <i>Отдых после «{last_exercise_name}»: {rest_time_str}</i>")
+        else:
+            lines.append(f"⏱ <i>Отдых: {rest_time_str}</i>")
 
     lines.append(f"📊 Выполнено: <b>{done_ex} / {total_ex}</b> упражнений")
     return "\n".join(lines)
@@ -96,7 +102,7 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
                     last_note: str | None = None,
                     last_duration: int | None = None,
                     rest_time_str: str | None = None,
-                    timer_str: str | None = None) -> str:  # <--- ВОТ ЗДЕСЬ ДОЛЖЕН БЫТЬ ПАРАМЕТР
+                    timer_str: str | None = None) -> str:
     from app.utils import format_duration
 
     if ex.kind == "strength":
@@ -113,11 +119,10 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
         if last_note:
             header += f"\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>"
 
-        if rest_time_str:
-            header += f"\n⏱ <i>Отдых: {rest_time_str}</i>"
-
         if timer_str:
             header += f"\n⏱ <b>Таймер:</b> {timer_str}"
+        if rest_time_str:
+            header += f"\n⏱ <i>Отдых: {rest_time_str}</i>"
 
         return (
             f"<b>{ex.name}</b>\n\n"
