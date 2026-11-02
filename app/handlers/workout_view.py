@@ -20,7 +20,7 @@ router = Router()
 
 
 @router.message(Command("workout"))
-@router.message(F.text == "🏋️ Тренировки")
+@router.message(F.text == "🏠 Главная")
 async def cmd_workout(message: Message, session: AsyncSession,
                       state: FSMContext):
     await state.clear()

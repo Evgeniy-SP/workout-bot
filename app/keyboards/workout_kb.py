@@ -488,7 +488,12 @@ def optional_list_kb(session_id: int, exercises: list[Exercise],
 def main_reply_kb() -> ReplyKeyboardMarkup:
     """Постоянная клавиатура внизу экрана."""
     kb = ReplyKeyboardBuilder()
-    kb.button(text="🏋️ Тренировки")
-    kb.button(text="ℹ️ Помощь")
-    kb.adjust(2)
+    kb.button(text="🏠 Главная")
+    kb.adjust(1)
     return kb.as_markup(resize_keyboard=True)
+
+
+def start_inline_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="ℹ️ Справка", callback_data="show_help")
+    return kb.as_markup()

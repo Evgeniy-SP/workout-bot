@@ -66,7 +66,7 @@ async def resolve_cancel_view(
     if return_to == "wt_card" and "wt_id" in data:
         wt = await session.get(WorkoutType, data["wt_id"])
         if wt:
-            return "❌ Отменено.\n\n" + render_workout_card(wt), workout_card_kb(wt.id)
+            return "❌ Отменено.\n\n" + render_workout_card(wt), workout_card_kb(wt)
         return "❌ Отменено.", None
 
     # 6. Список тренировок

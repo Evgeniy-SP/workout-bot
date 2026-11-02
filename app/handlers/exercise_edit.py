@@ -94,7 +94,7 @@ async def rename_workout_save(message: Message, state: FSMContext, session: Asyn
     await state.clear()
     await message.answer(
         "✅ Название обновлено.\n\n" + render_workout_card(wt),
-        reply_markup=workout_card_kb(wt.id),
+        reply_markup=workout_card_kb(wt),
     )
 
 

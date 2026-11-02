@@ -31,17 +31,16 @@ async def main() -> None:
     # Порядок роутеров важен: общие команды → навигация → FSM-редактирование
     dp.include_routers(
         start.router,
+        workout_view.router,
         exercise_edit.router,
         training_menu.router,
         training_sets.router,
         training_timers.router,
         training_notes.router,
         training_finish.router,
-        workout_view.router,
         workout_crud.router,
         workout_archive.router,
-        workout_create.router,
-        exercise_create.router,
+        # ... остальные
     )
     logging.info("Бот запущен")
     try:
