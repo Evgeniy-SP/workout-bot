@@ -3,10 +3,10 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Exercise, WorkoutType
+from app.db.models import Exercise, WorkoutType, WorkoutSession
 from app.db.queries import get_active_session
 from app.keyboards.workout_kb import (
     exercise_card_kb, exercises_list_kb, workout_card_kb, workouts_list_kb,
@@ -20,6 +20,7 @@ router = Router()
 
 
 @router.message(Command("workout"))
+@router.message(F.text == "🏋️ Тренировки")
 async def cmd_workout(message: Message, session: AsyncSession,
                       state: FSMContext):
     await state.clear()
@@ -27,13 +28,7 @@ async def cmd_workout(message: Message, session: AsyncSession,
     if not user:
         return await message.answer("Сначала нажми /start")
 
-    result = await session.execute(
-        select(WorkoutType)
-        .where(WorkoutType.user_id == user.id,
-               WorkoutType.is_archived == False)
-        .order_by(WorkoutType.sort_order)
-    )
-    workouts = list(result.scalars())
+    workouts, new_wt_ids = await _get_sorted_workouts(session, user.id)
 
     if not workouts:
         from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -49,7 +44,8 @@ async def cmd_workout(message: Message, session: AsyncSession,
 
     await message.answer(
         "🏋️ Выбери тренировку:",
-        reply_markup=workouts_list_kb(workouts, active_wt_id=active_wt_id),
+        reply_markup=workouts_list_kb(workouts, active_wt_id=active_wt_id,
+                                      new_wt_ids=new_wt_ids)
     )
 
 
@@ -61,20 +57,15 @@ async def cb_workouts_list(callback: CallbackQuery, session: AsyncSession,
     if not user:
         return await callback.answer("Сначала /start", show_alert=True)
 
-    result = await session.execute(
-        select(WorkoutType)
-        .where(WorkoutType.user_id == user.id,
-               WorkoutType.is_archived == False)
-        .order_by(WorkoutType.sort_order)
-    )
-    workouts = list(result.scalars())
+    workouts, new_wt_ids = await _get_sorted_workouts(session, user.id)
 
     active = await get_active_session(session, user.id)
     active_wt_id = active.workout_type_id if active else None
 
     await callback.message.edit_text(
         "🏋️ Выбери тренировку:",
-        reply_markup=workouts_list_kb(workouts, active_wt_id=active_wt_id),
+        reply_markup=workouts_list_kb(workouts, active_wt_id=active_wt_id,
+                                      new_wt_ids=new_wt_ids)
     )
     await callback.answer()
 
@@ -98,8 +89,7 @@ async def cb_workout_card(callback: CallbackQuery, session: AsyncSession,
 
     await callback.message.edit_text(
         render_workout_card(wt),
-        reply_markup=workout_card_kb(wt.id,
-                                     active_session_id=active_session_id),
+        reply_markup=workout_card_kb(wt, active_session_id=active_session_id)
     )
     await callback.answer()
 
@@ -222,3 +212,45 @@ async def cb_ex_move_down(callback: CallbackQuery, session: AsyncSession):
 
     await _render_card(session, ex, callback.message)
     await callback.answer("Перемещено вниз ⬇️")
+
+
+from sqlalchemy import select, func
+from app.db.models import WorkoutType, WorkoutSession
+
+
+async def _get_sorted_workouts(session: AsyncSession, user_id: int) -> tuple[
+    list[WorkoutType], set[int]]:
+    # 1. Получаем все активные тренировки
+    result = await session.execute(
+        select(WorkoutType)
+        .where(WorkoutType.user_id == user_id,
+               WorkoutType.is_archived == False)
+    )
+    workouts = list(result.scalars())
+
+    # 2. Получаем даты последних выполнений для каждой
+    dates_result = await session.execute(
+        select(WorkoutSession.workout_type_id,
+               func.max(WorkoutSession.started_at))
+        .where(WorkoutSession.user_id == user_id)
+        .group_by(WorkoutSession.workout_type_id)
+    )
+    last_dates = dict(dates_result.all())  # {wt_id: last_date}
+
+    # 3. Делим на две группы
+    in_rotation = [w for w in workouts if w.is_in_rotation]
+    others = [w for w in workouts if not w.is_in_rotation]
+
+    # 4. Сортируем группу "В ротации"
+    from datetime import datetime, timezone
+    min_date = datetime.min.replace(tzinfo=timezone.utc)
+
+    in_rotation.sort(key=lambda w: last_dates.get(w.id, min_date))
+
+    # 5. Остальные сортируем по sort_order
+    others.sort(key=lambda w: w.sort_order)
+
+    # 6. Собираем ID новых тренировок (у которых нет истории)
+    new_wt_ids = {w.id for w in workouts if w.id not in last_dates}
+
+    return in_rotation + others, new_wt_ids

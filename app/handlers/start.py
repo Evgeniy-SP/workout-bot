@@ -1,19 +1,16 @@
 """Хэндлеры: /start, /help, /done."""
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import User, WorkoutType
+from app.keyboards.workout_kb import main_reply_kb
+from app.db.models import User
 
 router = Router()
-
-
-# Импорт create_default_workout можно убрать, если он больше нигде не нужен
-# from app.db.seed import create_default_workout
 
 
 @router.message(CommandStart())
@@ -32,21 +29,27 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext) 
             f"👋 Привет, <b>{tg.full_name}</b>!\n\n"
             "Добро пожаловать в бот для тренировок!\n\n"
             "У тебя пока нет созданных тренировок. "
-            "Нажми /workout, чтобы создать свою первую программу."
+            "Нажми кнопку внизу, чтобы начать",
+            reply_markup=main_reply_kb()
         )
     else:
         user.username = tg.username
         user.full_name = tg.full_name
         await session.commit()
-        await message.answer(f"С возвращением, <b>{tg.full_name}</b>! /workout — тренировки.")
+        await message.answer(
+            f"С возвращением, <b>{tg.full_name}</b>!",
+            reply_markup=main_reply_kb()
+        )
 
 
 @router.message(Command("help"))
+@router.message(F.text == "ℹ️ Помощь")
 async def cmd_help(message: Message) -> None:
     await message.answer(
-        "📖 <b>Команды:</b>\n\n"
-        "/start — регистрация / приветствие\n"
-        "/help — эта справка\n"
-        "/workout — меню тренировок и упражнений\n"
-        "/cancel — отменить текущий диалог ввода\n"
+        "📖 <b>Как пользоваться ботом:</b>\n\n"
+        "1️⃣ Нажми <b>«🏋️ Тренировки»</b> внизу, чтобы открыть меню.\n"
+        "2️⃣ Выбери нужную тренировку и нажми <b>«▶️ Начать»</b>.\n"
+        "3️⃣ Записывай подходы, используй таймеры и оставляй заметки.\n"
+        "4️⃣ В конце нажми <b>«🏁 Завершить тренировку»</b>.\n\n"
+        "<i>💡 Если бот ждет ввода текста, ты всегда можешь нажать кнопку «❌ Отмена» или написать /cancel.</i>"
     )

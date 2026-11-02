@@ -1,38 +1,46 @@
 """Фабрики inline-клавиатур."""
-from aiogram.types import InlineKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from app.db.models import Exercise, WorkoutType
 from app.utils import format_weight, format_duration
 
 
 def workouts_list_kb(workouts: list[WorkoutType],
-                     active_wt_id: int | None = None) -> InlineKeyboardMarkup:
-    """Список тренировок. Если тренировка активна — маркер ▶️."""
+                     active_wt_id: int | None = None,
+                     new_wt_ids: set[int] = None) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    new_wt_ids = new_wt_ids or set()
+
     for w in workouts:
         marker = " ▶️" if w.id == active_wt_id else ""
-        kb.button(text=f"🏋️ {w.name}{marker}", callback_data=f"wt:{w.id}")
+        new_marker = "🆕 " if w.id in new_wt_ids else ""
+        kb.button(text=f"{new_marker}🏋️ {w.name}{marker}",
+                  callback_data=f"wt:{w.id}")
+
     kb.button(text="➕ Новая тренировка", callback_data="wt_new")
     kb.button(text="📦 Архив тренировок", callback_data="wt_arch_list")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def workout_card_kb(wt_id: int,
+def workout_card_kb(wt: WorkoutType,
                     active_session_id: int | None = None) -> InlineKeyboardMarkup:
-    """Карточка тренировки. Если есть активная сессия — кнопка «Продолжить»."""
     kb = InlineKeyboardBuilder()
     if active_session_id:
         kb.button(text="▶️ Продолжить тренировку",
                   callback_data=f"tr_list:{active_session_id}")
     else:
         kb.button(text="▶️ Начать тренировку",
-                  callback_data=f"tr_start:{wt_id}")
-    kb.button(text="👀 Упражнения", callback_data=f"wt_ex:{wt_id}")
-    kb.button(text="📦 Архив упражнений", callback_data=f"ex_arch_menu:{wt_id}")
-    kb.button(text="✏️ Переименовать", callback_data=f"wt_ren:{wt_id}")
-    kb.button(text="🗑 Удалить тренировку", callback_data=f"wt_del:{wt_id}")
+                  callback_data=f"tr_start:{wt.id}")
+
+    kb.button(text="👀 Упражнения", callback_data=f"wt_ex:{wt.id}")
+
+    rot_text = "🔄 В ротации: Да" if wt.is_in_rotation else "⏸ Не в ротации"
+    kb.button(text=rot_text, callback_data=f"wt_toggle_rot:{wt.id}")
+
+    kb.button(text="✏️ Переименовать", callback_data=f"wt_ren:{wt.id}")
+    kb.button(text="🗑 Удалить тренировку", callback_data=f"wt_del:{wt.id}")
     kb.button(text="⬅️ К списку", callback_data="wt_list")
     kb.adjust(1)
     return kb.as_markup()
@@ -475,3 +483,12 @@ def optional_list_kb(session_id: int, exercises: list[Exercise],
               callback_data=f"tr_list:{session_id}")
     kb.adjust(1)
     return kb.as_markup()
+
+
+def main_reply_kb() -> ReplyKeyboardMarkup:
+    """Постоянная клавиатура внизу экрана."""
+    kb = ReplyKeyboardBuilder()
+    kb.button(text="🏋️ Тренировки")
+    kb.button(text="ℹ️ Помощь")
+    kb.adjust(2)
+    return kb.as_markup(resize_keyboard=True)

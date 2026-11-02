@@ -43,6 +43,7 @@ class WorkoutType(Base):
     description: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_in_rotation: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

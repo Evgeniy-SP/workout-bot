@@ -21,11 +21,17 @@ router = Router()
 
 # ─────────────── /cancel — отмена в любом состоянии ───────────────
 @router.message(Command("cancel"))
-async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession):
+async def cmd_cancel(message: Message, state: FSMContext,
+                     session: AsyncSession):
     from app.services.navigation_service import resolve_cancel_view
     result = await resolve_cancel_view(state, session, message.from_user.id)
+
     if result is None:
-        return await message.answer("Нечего отменять.")
+        # Если отменять нечего — просто показываем главное меню тренировок
+        from app.handlers.workout_view import cmd_workout
+        await cmd_workout(message, session, state)
+        return
+
     text, kb = result
     await message.answer(text, reply_markup=kb)
 

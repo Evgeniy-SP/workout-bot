@@ -207,7 +207,7 @@ async def cb_workout_delete_cancel(callback: CallbackQuery,
     from app.render import render_workout_card
 
     await callback.message.edit_text(
-        render_workout_card(wt), reply_markup=workout_card_kb(wt.id)
+        render_workout_card(wt), reply_markup=workout_card_kb(wt)
     )
     await callback.answer("Отменено")
 
@@ -256,3 +256,23 @@ async def cb_workout_archive(callback: CallbackQuery, session: AsyncSession):
             reply_markup=workouts_list_kb(workouts),
         )
     await callback.answer("Архивировано")
+
+
+@router.callback_query(F.data.startswith("wt_toggle_rot:"))
+async def cb_toggle_rotation(callback: CallbackQuery, session: AsyncSession):
+    wt_id = int(callback.data.split(":")[1])
+    wt = await session.get(WorkoutType, wt_id)
+    if not wt:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    wt.is_in_rotation = not wt.is_in_rotation
+    await session.commit()
+
+    from app.keyboards.workout_kb import workout_card_kb
+    from app.render import render_workout_card
+
+    await callback.message.edit_text(
+        render_workout_card(wt),
+        reply_markup=workout_card_kb(wt)
+    )
+    await callback.answer("Обновлено")

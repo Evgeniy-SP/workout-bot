@@ -90,5 +90,5 @@ async def _finish_creation(message: Message, state: FSMContext, session: AsyncSe
     await message.answer(
         "✅ Тренировка создана. Открой «Упражнения», чтобы добавить в неё упражнения:\n\n"
         + render_workout_card(wt),
-        reply_markup=workout_card_kb(wt.id),
+        reply_markup=workout_card_kb(wt)
     )

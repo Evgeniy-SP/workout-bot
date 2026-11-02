@@ -417,9 +417,11 @@ async def cb_restore_merge(callback: CallbackQuery, session: AsyncSession):
 
     await session.commit()
 
+    wt = await session.get(WorkoutType, wt_id)
+
     await callback.message.edit_text(
         msg,
-        reply_markup=workout_card_kb(wt_id)
+        reply_markup=workout_card_kb(wt)
     )
     await callback.answer("Восстановлено")
 
@@ -476,10 +478,12 @@ async def cb_arch_del_yes(callback: CallbackQuery, session: AsyncSession):
     )
     archived = list(result.scalars())
 
+    wt = await session.get(WorkoutType, wt_id)
+
     if not archived:
         await callback.message.edit_text(
             f"🗑 Упражнение <b>{name}</b> удалено навсегда.\n\n📦 Архив пуст.",
-            reply_markup=workout_card_kb(wt_id)
+            reply_markup=workout_card_kb(wt)
         )
     else:
         grouped = {}
