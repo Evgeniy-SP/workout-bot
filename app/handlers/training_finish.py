@@ -306,20 +306,25 @@ async def cb_finish_confirm(callback: CallbackQuery, session: AsyncSession,
         "",
     ]
 
+    # Текстовый цикл (для красивого вывода в сообщении)
     for ex in wt.exercises:
         sets = sets_by_ex.get(ex.id, [])
         done = sum(1 for s in sets if s.completed)
         plan = (ex.sets or 0) if ex.kind == "strength" else 1
         is_done = done >= plan
 
+        opt_mark = " <i>(опц.)</i>" if ex.is_optional else ""
+
+        # Если упражнение опциональное и НЕ сделано (0 подходов) — вообще не выводим его
+        if ex.is_optional and done == 0:
+            continue
+
         if is_done:
-            lines.append(f"✅ {ex.name}")
+            lines.append(f"✅ {ex.name}{opt_mark}")
         elif done > 0:
-            lines.append(f"🟡 {ex.name}: {done}/{plan}")
-        elif ex.is_optional:
-            lines.append(
-                f"⚪ {ex.name} <i>(опц., пропущено — так и планировалось)</i>")
+            lines.append(f"🟡 {ex.name}{opt_mark}: {done}/{plan}")
         else:
+            # Сюда попадут только обязательные, которые пропущены
             lines.append(f"⚪ {ex.name}")
 
     if ratio >= 1.0:

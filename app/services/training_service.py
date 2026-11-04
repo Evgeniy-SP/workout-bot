@@ -271,8 +271,8 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
     ws = await session.get(WorkoutSession, session_id)
     wt = await load_workout(session, ws.workout_type_id)
 
-    exercises = sorted(wt.exercises,
-                       key=lambda e: (e.is_optional, e.sort_order))
+    # Сортируем СТРОГО по порядку, который задал пользователь (без учета опциональности)
+    exercises = sorted(wt.exercises, key=lambda e: e.sort_order)
     sets_by_ex = await get_sets_grouped(session, session_id)
 
     last_time = None
@@ -306,13 +306,17 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
         if remaining > 0:
             timer_str = f"осталось {remaining} сек"
 
-    # Для текста передаем только обязательные, чтобы не захламлять
-    main_exercises = [ex for ex in exercises if not ex.is_optional]
+    # Для текста передаем обязательные + те опциональные, которые уже начаты/сделаны
+    visible_exercises = []
+    for ex in exercises:
+        sets = sets_by_ex.get(ex.id, [])
+        if not ex.is_optional or sets:  # Если обязательное ИЛИ есть подходы (сделано)
+            visible_exercises.append(ex)
 
     text = render_training_list(
         wt,
         exercises,
-        main_exercises,
+        visible_exercises,
         sets_by_ex,
         ws.started_at,
         rest_time_str=rest_time_str,
