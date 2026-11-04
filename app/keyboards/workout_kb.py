@@ -57,6 +57,7 @@ def exercises_list_kb(exercises: list[Exercise], wt_id: int) -> InlineKeyboardMa
             text = f"🏃 {ex.name}{opt} · {format_duration(ex.duration_seconds)}"
         kb.button(text=text, callback_data=f"ex:{ex.id}")
     kb.button(text="➕ Добавить упражнение", callback_data=f"ex_new:{wt_id}")
+    kb.button(text="📦 Архив упражнений", callback_data=f"ex_arch_menu:{wt_id}")
     kb.button(text="⬅️ В меню тренировки", callback_data=f"wt:{wt_id}")
     kb.adjust(1)
     return kb.as_markup()
@@ -201,23 +202,26 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                 can_remove: bool = False,
                 use_history: bool = False,
                 is_first_set: bool = True,
-                has_timer: bool = False) -> InlineKeyboardMarkup:  # <-- НОВЫЙ ПАРАМЕТР
+                has_timer: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     sizes = []
 
     if ex.kind == "strength":
         weight_text = format_weight(planned_weight)
-        if use_history:
-            if is_first_set:
-                btn_text = f"✅ Как на прошлой тренировке: {planned_reps} × {weight_text}"
-            else:
-                btn_text = f"✅ Предыдущий подход: {planned_reps} × {weight_text}"
+
+        # Логика текста кнопки
+        if not is_first_set:
+            btn_text = f"✅ Предыдущий подход: {planned_reps} × {weight_text}"
+        elif use_history:
+            btn_text = f"✅ Как на прошлой тренировке: {planned_reps} × {weight_text}"
         else:
             btn_text = f"✅ Как планировал: {planned_reps} × {weight_text}"
 
+        # ВАЖНО: кнопка создается ТОЛЬКО ЗДЕСЬ, один раз!
         kb.button(text=btn_text,
                   callback_data=f"tr_save_planned:{session_id}:{ex.id}")
         sizes.append(1)
+
         kb.button(text="✏️ Ввести фактически",
                   callback_data=f"tr_custom:{session_id}:{ex.id}")
         sizes.append(1)
@@ -228,6 +232,7 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
         kb.button(text=btn_text,
                   callback_data=f"tr_save_planned:{session_id}:{ex.id}")
         sizes.append(1)
+
         kb.button(text="✏️ Ввести фактически",
                   callback_data=f"tr_custom:{session_id}:{ex.id}")
         sizes.append(1)
@@ -246,7 +251,7 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                   callback_data=f"tr_timer_custom:{session_id}:ex:{ex.id}")
         sizes.append(3)
 
-        if has_timer:  # <-- КНОПКА ОСТАНОВКИ
+        if has_timer:
             kb.button(text="⏹ Остановить таймер",
                       callback_data=f"tr_timer_stop:{session_id}:ex:{ex.id}")
             sizes.append(1)

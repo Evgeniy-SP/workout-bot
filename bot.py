@@ -40,7 +40,8 @@ async def main() -> None:
         training_finish.router,
         workout_crud.router,
         workout_archive.router,
-        # ... остальные
+        workout_create.router,
+        exercise_create.router,
     )
     logging.info("Бот запущен")
     try:

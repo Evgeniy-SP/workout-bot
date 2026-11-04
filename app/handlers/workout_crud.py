@@ -6,13 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Exercise, SessionExerciseNote, SessionSet, \
     WorkoutSession, WorkoutType
+from app.handlers.workout_view import _get_sorted_workouts
 from app.keyboards.workout_kb import (
     confirm_delete_kb, confirm_workout_delete_kb, exercise_card_kb,
     exercises_list_kb, workouts_list_kb,
 )
 from app.render import render_exercise_card
 from app.services.training_service import get_user, load_workout_with_exercises
-from app.utils import fmt_msk_date
 
 router = Router()
 
@@ -173,13 +173,7 @@ async def cb_workout_delete_confirm(callback: CallbackQuery,
     await session.delete(wt)
     await session.commit()
 
-    result = await session.execute(
-        select(WorkoutType)
-        .where(WorkoutType.user_id == user.id,
-               WorkoutType.is_archived == False)
-        .order_by(WorkoutType.sort_order)
-    )
-    workouts = list(result.scalars())
+    workouts, new_ids = await _get_sorted_workouts(session, user.id)
 
     if not workouts:
         await callback.message.edit_text(
@@ -190,7 +184,7 @@ async def cb_workout_delete_confirm(callback: CallbackQuery,
         await callback.message.edit_text(
             "🗑 Тренировка удалена вместе с историей.\n\n"
             "🏋️ Выбери тренировку:",
-            reply_markup=workouts_list_kb(workouts),
+            reply_markup=workouts_list_kb(workouts, new_wt_ids=new_ids),
         )
     await callback.answer("Удалено")
 
@@ -236,13 +230,7 @@ async def cb_workout_archive(callback: CallbackQuery, session: AsyncSession):
         await session.delete(active_session)
         await session.commit()
 
-    result = await session.execute(
-        select(WorkoutType)
-        .where(WorkoutType.user_id == user.id,
-               WorkoutType.is_archived == False)
-        .order_by(WorkoutType.sort_order)
-    )
-    workouts = list(result.scalars())
+    workouts, new_ids = await _get_sorted_workouts(session, user.id)
 
     if not workouts:
         await callback.message.edit_text(
@@ -253,7 +241,7 @@ async def cb_workout_archive(callback: CallbackQuery, session: AsyncSession):
         await callback.message.edit_text(
             "📦 Тренировка в архиве. История сохранена.\n\n"
             "🏋️ Выбери тренировку:",
-            reply_markup=workouts_list_kb(workouts),
+            reply_markup=workouts_list_kb(workouts, new_wt_ids=new_ids),
         )
     await callback.answer("Архивировано")
 
