@@ -380,4 +380,3 @@ async def load_workout_with_exercises(session: AsyncSession, wt_id: int):
         )
     )
     return result.scalar_one_or_none()
-
