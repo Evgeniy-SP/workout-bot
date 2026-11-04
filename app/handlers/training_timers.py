@@ -117,8 +117,7 @@ async def cb_start_timer(callback: CallbackQuery, session: AsyncSession):
         "ex_id": ex_id
     }
 
-    await callback.answer(f"⏱ Таймер на {seconds} секунд запущен",
-                          show_alert=True)
+    await callback.answer(f"Таймер на {seconds} секунд запущен")
 
     try:
         if context == "ex":
@@ -193,16 +192,12 @@ async def fsm_timer_custom_save(message: Message, state: FSMContext,
         result = await render_approach_screen(session, session_id, ex_id)
         if result:
             text_screen, kb = result
-            sent_msg = await message.answer(
-                f"⏱ Таймер на {seconds} сек запущен.\n\n" + text_screen,
-                reply_markup=kb)
+            sent_msg = await message.answer(text_screen, reply_markup=kb)
             ACTIVE_TIMERS[session_id]["message_id"] = sent_msg.message_id
     else:
         ws = await session.get(WorkoutSession, session_id)
         text_screen, kb = await render_list(session, session_id, ws.user_id)
-        sent_msg = await message.answer(
-            f"⏱ Таймер на {seconds} сек запущен.\n\n" + text_screen,
-            reply_markup=kb)
+        sent_msg = await message.answer(text_screen, reply_markup=kb)
         ACTIVE_TIMERS[session_id]["message_id"] = sent_msg.message_id
 
 
@@ -230,14 +225,12 @@ async def cb_timer_stop(callback: CallbackQuery, session: AsyncSession):
             result = await render_approach_screen(session, session_id, ex_id)
             if result:
                 text, kb = result
-                await callback.message.edit_text(
-                    "⏹ Таймер остановлен.\n\n" + text, reply_markup=kb)
+                await callback.message.edit_text(text, reply_markup=kb)
         else:
             ws = await session.get(WorkoutSession, session_id)
             if ws:
                 text, kb = await render_list(session, session_id, ws.user_id)
-                await callback.message.edit_text(
-                    "⏹ Таймер остановлен.\n\n" + text, reply_markup=kb)
+                await callback.message.edit_text(text, reply_markup=kb)
     except Exception:
         pass
 

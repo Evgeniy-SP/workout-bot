@@ -50,30 +50,29 @@ def next_set_num(sets: list[SessionSet]) -> int:
     return sum(1 for s in sets if s.completed) + 1
 
 
-async def render_approach_screen(session: AsyncSession, session_id: int,
-                                 ex_id: int):
+async def render_approach_screen(
+        session: AsyncSession, session_id: int, ex_id: int
+):
+    from app.keyboards.workout_kb import cardio_done_kb, strength_summary_kb
+    from app.render import render_strength_summary
+    from app.utils import format_duration
+
     ws = await session.get(WorkoutSession, session_id)
     ex = await session.get(Exercise, ex_id)
-    if not ws or not ex or ws.finished_at:
+
+    # Отладка
+    if not ws:
+        print("DEBUG: ws is None")
+        return None
+    if not ex:
+        print(f"DEBUG: ex is None for ex_id={ex_id}")
+        return None
+    if ws.finished_at:
+        print("DEBUG: ws is finished")
         return None
 
-    # Загружаем тренировку, чтобы знать все упражнения
     wt = await load_workout(session, ws.workout_type_id)
     sets_by_ex = await get_sets_grouped(session, session_id)
-
-    # ─── СЧИТАЕМ ПРОГРЕСС ТРЕНИРОВКИ ───
-    total_ex = 0
-    done_ex = 0
-    for e in wt.exercises:
-        e_sets = sets_by_ex.get(e.id, [])
-        e_done = sum(1 for s in e_sets if s.completed)
-        e_plan = (e.sets or 0) if e.kind == "strength" else 1
-        if not e.is_optional or e_done > 0:
-            total_ex += 1
-        if e_done >= e_plan:
-            done_ex += 1
-
-    progress_text = f"\n\n📊 Выполнено: <b>{done_ex} / {total_ex}</b> упражнений"
 
     # ─── УМНЫЙ ПОИСК УПРАЖНЕНИЙ ───
     next_ex_id = None
@@ -110,7 +109,7 @@ async def render_approach_screen(session: AsyncSession, session_id: int,
                         next_ex_id = n_ex.id
                         break
 
-            # 3. Если ВСЕ упражнения выполнены, включаем режим навигации по результатам
+            # 3. Если ВСЕ упражнения выполнены, включаем режим навигации
             if not next_ex_id and len(main_exercises) > 1:
                 if current_idx < len(main_exercises) - 1:
                     next_ex_id = main_exercises[current_idx + 1].id
@@ -127,7 +126,6 @@ async def render_approach_screen(session: AsyncSession, session_id: int,
     if ex.kind != "strength":
         can_remove = not completed
 
-        # Заметка из текущей сессии
         note_res = await session.execute(
             select(SessionExerciseNote).where(
                 SessionExerciseNote.session_id == session_id,
@@ -136,7 +134,6 @@ async def render_approach_screen(session: AsyncSession, session_id: int,
         )
         note_obj = note_res.scalar_one_or_none()
 
-        # История из прошлой сессии
         last_set = await get_last_completed_set(session, ws.user_id, ex_id,
                                                 current_session_id=session_id)
         last_duration = last_set.duration_seconds if last_set else None
@@ -161,20 +158,14 @@ async def render_approach_screen(session: AsyncSession, session_id: int,
                     f"✅ Выполнено: <b>{duration}</b>\n\n"
                     "Можно изменить время, если ошиблись." + note_text
             )
-            kb = cardio_done_kb(
-                session_id, ex,
-                can_remove=can_remove,
-                next_ex_id=next_ex_id,
-                prev_ex_id=prev_ex_id
-            )
+            kb = cardio_done_kb(session_id, ex, can_remove=can_remove,
+                                next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
         else:
             text = render_approach(
                 ex, 1, None, None, ex.duration_seconds,
-                last_note=last_note,  # <--- Передаем только ИСТОРИЮ в рендер
+                last_note=last_note,
                 last_duration=last_duration,
             )
-
-            # 🟢 Добавляем заметку из ТЕКУЩЕЙ сессии, если она есть
             if note_obj:
                 text += f"\n\n📝 <i>Заметка: {note_obj.note}</i>"
 
@@ -184,18 +175,17 @@ async def render_approach_screen(session: AsyncSession, session_id: int,
                 can_remove=can_remove,
                 use_history=bool(last_duration)
             )
-        return text + progress_text, kb
+        return text, kb
 
-        # ─── СИЛОВОЕ ───
+    # ─── СИЛОВОЕ ───
     plan = ex.sets or 0
     if plan > 0 and len(completed) >= plan:
+        # Все подходы сделаны — экран итогов
         text = render_strength_summary(ex, completed)
-        kb = strength_summary_kb(
-            session_id, ex, completed,
-            next_ex_id=next_ex_id,
-            prev_ex_id=prev_ex_id
-        )
+        kb = strength_summary_kb(session_id, ex, completed,
+                                 next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
     else:
+        # Очередной подход
         set_num = len(completed) + 1
         last_set = await get_last_completed_set(session, ws.user_id, ex_id,
                                                 current_session_id=session_id)
@@ -207,7 +197,6 @@ async def render_approach_screen(session: AsyncSession, session_id: int,
             last_note = await get_last_note_for_exercise(session, ex_id,
                                                          last_set.session_id)
 
-        # Расчет отдыха
         rest_time_str = None
         timer_str = None
 
@@ -252,7 +241,7 @@ async def render_approach_screen(session: AsyncSession, session_id: int,
             has_timer=(timer_str is not None)
         )
 
-    # Добавляем заметку (для силовых)
+    # Добавляем заметку из ТЕКУЩЕЙ сессии, если она есть (для силовых)
     note_res = await session.execute(
         select(SessionExerciseNote).where(
             SessionExerciseNote.session_id == session_id,
@@ -263,7 +252,7 @@ async def render_approach_screen(session: AsyncSession, session_id: int,
     if note_obj:
         text += f"\n\n📝 <i>Заметка: {note_obj.note}</i>"
 
-    return text + progress_text, kb
+    return text, kb
 
 
 async def render_list(session: AsyncSession, session_id: int, user_id: int):
@@ -353,7 +342,7 @@ async def render_optional_list(session: AsyncSession, session_id: int,
 
         if done_sets == 0:
             icon = "⚪"
-            status = "не сделано"
+            status = "не планировалось"
         elif done_sets >= plan_sets:
             icon = "✅"
             status = "сделано"

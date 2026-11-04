@@ -111,79 +111,92 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
                     timer_str: str | None = None) -> str:
     from app.utils import format_duration
 
-    # ─── СИЛОВОЕ ───
     if ex.kind == "strength":
+        # 1. Формируем блок истории/плана
         if last_reps or last_weight:
             display_reps = last_reps if last_reps else planned_reps
             display_weight = format_weight(
                 last_weight if last_weight else planned_weight)
-            header = f"Предыдущая тренировка: <b>{display_reps} × {display_weight}</b>"
+            history_text = f"🕰 <b>Прошлый раз: {display_reps} × {display_weight}</b>"
         else:
             display_reps = planned_reps
             display_weight = format_weight(planned_weight)
-            header = f"План: <b>{display_reps} × {display_weight}</b>"
+            history_text = f"📋 <b>План: {display_reps} × {display_weight}</b>"
 
         if last_note:
-            header += f"\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>"
+            history_text += f"\n📝 <i>{last_note}</i>"
 
+        # 2. Собираем всё в красивую цитату
+        done_sets = set_num - 1
+        blockquote = (
+            f"<blockquote>"
+            f"📈 Выполнено: <b>{done_sets}</b> из <b>{ex.sets}</b>\n"
+            f"📍 Текущий: <b>Подход {set_num}</b>\n"
+            f"{history_text}"
+            f"</blockquote>"
+        )
+
+        # 3. Дополнительный блок (таймер и отдых)
+        extra = ""
         if timer_str:
-            header += f"\n⏱ <b>Таймер:</b> {timer_str}"
+            extra += f"\n⏱ <b>Таймер:</b> {timer_str}"
         if rest_time_str:
-            header += f"\n⏱ <i>Отдых: {rest_time_str}</i>"
+            extra += f"\n⏱ <i>Отдых: {rest_time_str}</i>"
 
-        done = set_num - 1
         return (
-            f"<b>{ex.name}</b>\n\n"
-            f"Выполнено подходов: <b>{done}</b> из {ex.sets}\n"
-            f"Текущий: <b>Подход {set_num}</b>\n"
-            f"{header}"
+            f"🏋️ <b>{ex.name}</b>\n\n"
+            f"{blockquote}"
+            f"{extra}"
         )
 
     # ─── КАРДИО ───
     if last_duration:
-        duration_header = f"Предыдущая тренировка: <b>{format_duration(last_duration)}</b>"
+        duration_header = f"🕰 <b>Прошлый раз: {format_duration(last_duration)}</b>"
     else:
-        duration_header = f"План: <b>{format_duration(planned_duration)}</b>"
+        duration_header = f"📋 <b>План: {format_duration(planned_duration)}</b>"
 
-    note_text = f"\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>" if last_note else ""
+    note_text = f"\n📝 <i>{last_note}</i>" if last_note else ""
+
+    blockquote = f"<blockquote>{duration_header}{note_text}</blockquote>"
 
     return (
-        f"<b>{ex.name}</b>\n\n"
-        f"{duration_header}{note_text}"
+        f"🏃 <b>{ex.name}</b>\n\n"
+        f"{blockquote}"
     )
 
-
 def render_strength_summary(ex: Exercise, sets: list) -> str:
-    """Экран итогов силового упражнения.
-
-    Показывает все подходы + суммарные повторы + тоннаж (reps × weight).
-    Тоннаж — простая метрика прогресса: если растёт от тренировки к тренировке,
-    значит становишься сильнее.
-    """
-    lines = [f"<b>{ex.name}</b>", ""]
-
     if not sets:
-        lines.append("Пока нет подходов.")
-        return "\n".join(lines)
+        return f"🏋️ <b>{ex.name}</b>\n\nПока нет подходов."
 
     total_reps = 0
     total_volume = 0.0
     for s in sets:
         reps = s.reps or 0
-        # Безопасно парсим вес
         try:
             weight = float(s.weight_kg) if s.weight_kg else 0.0
         except ValueError:
-            weight = 0.0  # если там текст, тоннаж не считаем
-
-        weight_text = format_weight(s.weight_kg)
-        lines.append(f"{s.set_number}. {reps} × {weight_text}")
+            weight = 0.0
         total_reps += reps
         total_volume += reps * weight
 
-    lines.append("")
-    lines.append(f"📊 Всего повторов: <b>{total_reps}</b>")
+    # 1. Сначала заголовок и список подходов
+    lines = [
+        f"🏋️ <b>{ex.name}</b>\n",
+        "📋 <b>Выполненные подходы:</b>"
+    ]
+
+    for s in sets:
+        reps = s.reps or 0
+        weight_text = format_weight(s.weight_kg)
+        # Добавили галочку и жирный шрифт для красоты
+        lines.append(f"✅ <b>{s.set_number}.</b> {reps} × <b>{weight_text}</b>")
+
+    # 2. В самом низу — красивая цитата со статистикой
+    stats = f"<blockquote>📈 Всего повторов: <b>{total_reps}</b>"
     if total_volume > 0:
-        lines.append(f"⚖️ Тоннаж: <b>{total_volume:g} кг</b>")
+        stats += f"\n⚖️ Тоннаж: <b>{total_volume:g} кг</b>"
+    stats += "</blockquote>"
+
+    lines.append(f"\n{stats}")
 
     return "\n".join(lines)
