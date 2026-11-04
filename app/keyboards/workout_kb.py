@@ -281,41 +281,98 @@ def cancel_kb() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def cardio_done_kb(session_id: int, ex: Exercise,
-                   can_remove: bool = False) -> InlineKeyboardMarkup:
+def cardio_done_kb(session_id: int, ex: Exercise, can_remove: bool = False,
+                   next_ex_id: int | None = None,
+                   prev_ex_id: int | None = None) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✏️ Изменить время", callback_data=f"tr_custom:{session_id}:{ex.id}")
-    kb.button(text="📝 Заметка", callback_data=f"tr_note_ex:{session_id}:{ex.id}")
+    sizes = []
+
+    kb.button(text="✏️ Изменить время",
+              callback_data=f"tr_custom:{session_id}:{ex.id}")
+    sizes.append(1)
+
+    kb.button(text="📝 Заметка",
+              callback_data=f"tr_note_ex:{session_id}:{ex.id}")
+    sizes.append(1)
+
     if can_remove:
         kb.button(text="🗑 Убрать упражнение",
                   callback_data=f"tr_remove:{session_id}:{ex.id}")
-    kb.button(text="⬅️ К списку упражнений", callback_data=f"tr_list:{session_id}")
-    kb.adjust(1)
+        sizes.append(1)
+
+    # Навигация (в один ряд)
+    nav_count = 0
+    if prev_ex_id:
+        kb.button(text="⬅️ Предыдущее",
+                  callback_data=f"tr_ex:{session_id}:{prev_ex_id}")
+        nav_count += 1
+    if next_ex_id:
+        kb.button(text="Следующее ➡️",
+                  callback_data=f"tr_ex:{session_id}:{next_ex_id}")
+        nav_count += 1
+
+    if nav_count > 0:
+        sizes.append(nav_count)
+
+    kb.button(text="⬅️ К списку упражнений",
+              callback_data=f"tr_list:{session_id}")
+    sizes.append(1)
+
+    kb.adjust(*sizes)
     return kb.as_markup()
 
 
-def strength_summary_kb(session_id: int, ex: Exercise, sets: list) -> InlineKeyboardMarkup:
-    """Экран итогов силового: подходы кнопками + добавить + к списку."""
+def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
+                        next_ex_id: int | None = None,
+                        prev_ex_id: int | None = None) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    sizes = []
+
+    # 1. Группируем подходы (максимум по 2 в ряд)
     for s in sets:
         weight_text = format_weight(s.weight_kg)
         kb.button(
             text=f"✏️ {s.set_number}. {s.reps}×{weight_text}",
             callback_data=f"tr_edit_set:{session_id}:{s.id}",
         )
-    kb.button(
-        text="📝 Заметка",
-        callback_data=f"tr_note_ex:{session_id}:{ex.id}",
-    )
-    kb.button(
-        text="➕ Добавить подход",
-        callback_data=f"tr_add_set:{session_id}:{ex.id}",
-    )
-    kb.button(
-        text="⬅️ К списку упражнений",
-        callback_data=f"tr_list:{session_id}",
-    )
-    kb.adjust(1)
+
+    # Вычисляем, сколько кнопок в каждом ряду для подходов
+    num_sets = len(sets)
+    while num_sets > 0:
+        row_size = min(num_sets, 2)
+        sizes.append(row_size)
+        num_sets -= row_size
+
+    # 2. Основные действия
+    kb.button(text="➕ Добавить подход",
+              callback_data=f"tr_add_set:{session_id}:{ex.id}")
+    sizes.append(1)
+
+    kb.button(text="📝 Заметка",
+              callback_data=f"tr_note_ex:{session_id}:{ex.id}")
+    sizes.append(1)
+
+    # 3. Навигация (в один ряд)
+    nav_count = 0
+    if prev_ex_id:
+        kb.button(text="⬅️ Предыдущее",
+                  callback_data=f"tr_ex:{session_id}:{prev_ex_id}")
+        nav_count += 1
+    if next_ex_id:
+        kb.button(text="Следующее ➡️",
+                  callback_data=f"tr_ex:{session_id}:{next_ex_id}")
+        nav_count += 1
+
+    if nav_count > 0:
+        sizes.append(nav_count)
+
+    # 4. Выход в список
+    kb.button(text="⬅️ К списку упражнений",
+              callback_data=f"tr_list:{session_id}")
+    sizes.append(1)
+
+    # Применяем настройки рядов
+    kb.adjust(*sizes)
     return kb.as_markup()
 
 
