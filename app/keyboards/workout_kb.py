@@ -12,21 +12,26 @@ def workouts_list_kb(workouts: list[WorkoutType],
     kb = InlineKeyboardBuilder()
     new_wt_ids = new_wt_ids or set()
 
+    sizes = []
     for w in workouts:
         marker = " ▶️" if w.id == active_wt_id else ""
         new_marker = "🆕 " if w.id in new_wt_ids else ""
         kb.button(text=f"{new_marker}🏋️ {w.name}{marker}",
                   callback_data=f"wt:{w.id}")
+        sizes.append(1)  # Каждая тренировка в свой ряд
 
     kb.button(text="➕ Новая тренировка", callback_data="wt_new")
     kb.button(text="📦 Архив тренировок", callback_data="wt_arch_list")
-    kb.adjust(1)
+    sizes.append(2)
+
+    kb.adjust(*sizes)
     return kb.as_markup()
 
 
 def workout_card_kb(wt: WorkoutType,
                     active_session_id: int | None = None) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+
     if active_session_id:
         kb.button(text="▶️ Продолжить тренировку",
                   callback_data=f"tr_list:{active_session_id}")
@@ -34,15 +39,18 @@ def workout_card_kb(wt: WorkoutType,
         kb.button(text="▶️ Начать тренировку",
                   callback_data=f"tr_start:{wt.id}")
 
-    kb.button(text="👀 Упражнения", callback_data=f"wt_ex:{wt.id}")
+    kb.button(text="👀 Посмотреть упражнения", callback_data=f"wt_ex:{wt.id}")
 
-    rot_text = "🔄 В ротации: Да" if wt.is_in_rotation else "⏸ Не в ротации"
+    rot_text = "🔄 В ротации: Да" if wt.is_in_rotation else "⏸ В ротации: Нет"
     kb.button(text=rot_text, callback_data=f"wt_toggle_rot:{wt.id}")
-
     kb.button(text="✏️ Переименовать", callback_data=f"wt_ren:{wt.id}")
+
+    # Объединяем удаление и возврат в один ряд, чтобы растянуть пузырь
     kb.button(text="🗑 Удалить тренировку", callback_data=f"wt_del:{wt.id}")
-    kb.button(text="⬅️ К списку", callback_data="wt_list")
-    kb.adjust(1)
+    kb.button(text="⬅️ К списку тренировок", callback_data="wt_list")
+
+    # Настраиваем сетку: два ряда по одной кнопке, и два ряда по две кнопки
+    kb.adjust(1, 1, 2, 2)
     return kb.as_markup()
 
 
@@ -191,14 +199,16 @@ def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
                   callback_data=f"tr_refresh_list:{session_id}")
         sizes.append(1)
 
-    # Группируем действия по 2 в ряд, чтобы сэкономить место
-    kb.button(text="➕ Добавить", callback_data=f"tr_ex_add:{session_id}")
+    # Группируем действия по 2 в ряд, но с полным текстом для ширины
+    kb.button(text="➕ Добавить упражнение",
+              callback_data=f"tr_ex_add:{session_id}")
     kb.button(text="📝 Заметка", callback_data=f"tr_sess_note:{session_id}")
-    sizes.append(2)  # В один ряд
+    sizes.append(2)
 
-    kb.button(text="🏁 Завершить", callback_data=f"tr_finish:{session_id}")
-    kb.button(text="⬅️ В меню", callback_data=f"wt:{wt_id}")
-    sizes.append(2)  # В один ряд
+    kb.button(text="🏁 Завершить тренировку",
+              callback_data=f"tr_finish:{session_id}")
+    kb.button(text="⬅️ В меню тренировки", callback_data=f"wt:{wt_id}")
+    sizes.append(2)
 
     kb.adjust(*sizes)
     return kb.as_markup()

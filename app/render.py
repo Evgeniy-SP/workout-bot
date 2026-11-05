@@ -7,7 +7,7 @@ from app.utils import format_duration, format_weight
 
 
 def render_workout_card(wt: WorkoutType) -> str:
-    """Карточка тренировки. Описание показываем только если есть."""
+    """Карточка тренировки."""
     text = f"🏋️ <b>{wt.name}</b>"
     if wt.description:
         text += f"\n\n{wt.description}"

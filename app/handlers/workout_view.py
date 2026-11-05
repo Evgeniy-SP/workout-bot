@@ -3,17 +3,16 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Exercise, WorkoutType, WorkoutSession
+from app.db.models import Exercise
 from app.db.queries import get_active_session
 from app.keyboards.workout_kb import (
     exercise_card_kb, exercises_list_kb, workout_card_kb, workouts_list_kb,
 )
 from app.render import render_exercise_card, render_workout_card
 from app.services.training_service import (
-    get_user, load_workout_with_exercises,
+    get_user, load_workout_with_exercises, load_workout,
 )
 
 router = Router()
@@ -43,9 +42,8 @@ async def cmd_workout(message: Message, session: AsyncSession,
     active_wt_id = active.workout_type_id if active else None
 
     await message.answer(
-        "🏋️ Выбери тренировку:",
-        reply_markup=workouts_list_kb(workouts, active_wt_id=active_wt_id,
-                                      new_wt_ids=new_wt_ids)
+        "🏋️ <b>Выбери тренировку:</b>\n\n",
+        reply_markup=workouts_list_kb(workouts, active_wt_id=active_wt_id, new_wt_ids=new_wt_ids),
     )
 
 
@@ -63,9 +61,8 @@ async def cb_workouts_list(callback: CallbackQuery, session: AsyncSession,
     active_wt_id = active.workout_type_id if active else None
 
     await callback.message.edit_text(
-        "🏋️ Выбери тренировку:",
-        reply_markup=workouts_list_kb(workouts, active_wt_id=active_wt_id,
-                                      new_wt_ids=new_wt_ids)
+        "🏋️ <b>Выбери тренировку:</b>\n\n",
+        reply_markup=workouts_list_kb(workouts, active_wt_id=active_wt_id, new_wt_ids=new_wt_ids),
     )
     await callback.answer()
 
@@ -79,7 +76,7 @@ async def cb_workout_card(callback: CallbackQuery, session: AsyncSession,
     if not user:
         return await callback.answer("Сначала /start", show_alert=True)
 
-    wt = await session.get(WorkoutType, wt_id)
+    wt = await load_workout(session, wt_id)
     if not wt or wt.user_id != user.id:
         return await callback.answer("Не найдено", show_alert=True)
 

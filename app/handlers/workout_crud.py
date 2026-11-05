@@ -13,7 +13,8 @@ from app.keyboards.workout_kb import (
     exercises_list_kb, workouts_list_kb,
 )
 from app.render import render_exercise_card
-from app.services.training_service import get_user, load_workout_with_exercises
+from app.services.training_service import get_user, \
+    load_workout_with_exercises, load_workout
 
 router = Router()
 
@@ -192,7 +193,7 @@ async def cb_workout_delete_confirm(callback: CallbackQuery,
 async def cb_workout_delete_cancel(callback: CallbackQuery,
                                    session: AsyncSession):
     wt_id = int(callback.data.split(":")[1])
-    wt = await session.get(WorkoutType, wt_id)
+    wt = await load_workout(session, wt_id)
     if not wt:
         return await callback.answer("Не найдено", show_alert=True)
 

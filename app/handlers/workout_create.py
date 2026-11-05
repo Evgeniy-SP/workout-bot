@@ -6,8 +6,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User, WorkoutType
-from app.keyboards.workout_kb import cancel_kb, workout_card_kb, workout_description_kb
+from app.keyboards.workout_kb import (
+    cancel_kb,
+    workout_card_kb,
+    workout_description_kb
+)
 from app.render import render_workout_card
+from app.services.training_service import load_workout
 from app.states import WorkoutCreate
 
 router = Router()
@@ -101,6 +106,8 @@ async def _finish_creation(message: Message, state: FSMContext, session: AsyncSe
     session.add(wt)
     await session.commit()
     await session.refresh(wt)
+
+    wt = await load_workout(session, wt.id)
 
     await state.clear()
     await message.answer(
