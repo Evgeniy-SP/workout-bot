@@ -8,7 +8,8 @@ from app.db.models import Exercise, SessionExerciseNote, SessionSet, \
     WorkoutSession, WorkoutType
 from app.handlers.workout_view import _get_sorted_workouts
 from app.keyboards.workout_kb import (
-    confirm_delete_kb, confirm_workout_delete_kb, exercise_card_kb,
+    confirm_delete_kb, confirm_hard_delete_kb, confirm_workout_delete_kb,
+    exercise_card_kb,
     exercises_list_kb, workouts_list_kb,
 )
 from app.render import render_exercise_card
@@ -36,10 +37,10 @@ async def cb_delete_ask(callback: CallbackQuery, session: AsyncSession):
 
     if history_count > 0:
         text = (
-            f"Убрать упражнение <b>{ex.name}</b> из шаблона?\n\n"
-            f"Упражнение выполнялось в <b>{history_count}</b> "
-            f"тренировк{'е' if history_count == 1 else 'ах'} — история сохранится.\n\n"
-            "📦 Упражнение скроется из шаблона."
+            f"Что сделать с упражнением <b>{ex.name}</b>?\n\n"
+            f"У него есть история (<b>{history_count}</b> тренировок).\n\n"
+            "📦 <b>Архив</b> — скроет из шаблона, но сохранит историю.\n"
+            "🔥 <b>Удалить</b> — сотрет упражнение и всю историю навсегда."
         )
     else:
         text = (
@@ -48,8 +49,7 @@ async def cb_delete_ask(callback: CallbackQuery, session: AsyncSession):
         )
 
     await callback.message.edit_text(
-        text,
-        reply_markup=confirm_delete_kb(ex.id, has_history=(history_count > 0))
+        text, reply_markup=confirm_delete_kb(ex.id, has_history=(history_count > 0))
     )
     await callback.answer()
 
@@ -264,3 +264,48 @@ async def cb_toggle_rotation(callback: CallbackQuery, session: AsyncSession):
         reply_markup=workout_card_kb(wt)
     )
     await callback.answer("Обновлено")
+
+
+@router.callback_query(F.data.startswith("ex_del_hard_ask:"))
+async def cb_delete_hard_ask(callback: CallbackQuery, session: AsyncSession):
+    ex_id = int(callback.data.split(":")[1])
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    await callback.message.edit_text(
+        f"⚠️ <b>ВНИМАНИЕ!</b>\n\n"
+        f"Ты собираешься <b>навсегда удалить</b> упражнение <b>{ex.name}</b> "
+        f"вместе со всей его историей подходов.\n\n"
+        f"Это действие <b>невозможно отменить</b>. Уверен?",
+        reply_markup=confirm_hard_delete_kb(ex.id)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ex_del_hard_yes:"))
+async def cb_delete_hard_yes(callback: CallbackQuery, session: AsyncSession):
+    ex_id = int(callback.data.split(":")[1])
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    wt_id = ex.workout_type_id
+
+    # Удаляем историю, заметки и само упражнение
+    from app.db.models import SessionExerciseNote
+    await session.execute(
+        delete(SessionSet).where(SessionSet.exercise_id == ex_id))
+    await session.execute(delete(SessionExerciseNote).where(
+        SessionExerciseNote.exercise_id == ex_id))
+    await session.delete(ex)
+    await session.commit()
+
+    # Возвращаемся в список упражнений
+    wt = await load_workout_with_exercises(session, wt_id)
+    if wt:
+        await callback.message.edit_text(
+            f"🔥 Упражнение удалено навсегда.\n\n📋 Упражнения — <b>{wt.name}</b>",
+            reply_markup=exercises_list_kb(wt.exercises, wt.id),
+        )
+    await callback.answer("Удалено")

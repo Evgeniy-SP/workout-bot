@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
-from sqlalchemy import func as sa_func, select
+from sqlalchemy import delete, func as sa_func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Exercise, SessionSet, WorkoutSession
+from app.db.models import Exercise, SessionExerciseNote, SessionSet, WorkoutSession
 from app.db.queries import get_sets_grouped
 from app.keyboards.workout_kb import (
     after_finish_kb, choose_kind_kb, confirm_training_delete_kb,
@@ -114,16 +114,16 @@ async def cb_training_remove_ask(callback: CallbackQuery,
 
     if history_count > 0:
         text = (
-            f"Убрать упражнение <b>{ex.name}</b> из шаблона?\n\n"
-            f"Упражнение выполнялось в <b>{history_count}</b> тренировк{'е' if history_count == 1 else 'ах'} — история сохранится.\n\n"
-            "📦 Упражнение скроется из шаблона."
+            f"Что сделать с упражнением <b>{ex.name}</b>?\n\n"
+            f"У него есть история (<b>{history_count}</b> тренировок).\n\n"
+            "📦 <b>Архив</b> — скроет из шаблона, но сохранит историю.\n"
+            "🔥 <b>Удалить</b> — сотрет упражнение и всю историю навсегда."
         )
     else:
         text = (
             f"Удалить упражнение <b>{ex.name}</b>?\n\n"
             "Истории нет — удалится полностью."
         )
-
     await callback.message.edit_text(
         text,
         reply_markup=confirm_training_delete_kb(session_id, ex_id, context,
@@ -358,3 +358,61 @@ async def cb_finish_confirm(callback: CallbackQuery, session: AsyncSession,
     await callback.message.edit_text("\n".join(lines),
                                      reply_markup=after_finish_kb())
     await callback.answer("Тренировка завершена")
+
+
+@router.callback_query(F.data.startswith("tr_remove_hard_ask:"))
+async def cb_training_remove_hard_ask(callback: CallbackQuery,
+                                      session: AsyncSession):
+    parts = callback.data.split(":")
+    session_id = int(parts[1])
+    ex_id = int(parts[2])
+    context = parts[3]
+
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔥 Да, стереть историю",
+              callback_data=f"tr_remove_hard_yes:{session_id}:{ex_id}:{context}")
+    kb.button(text="❌ Нет, я передумал",
+              callback_data=f"tr_remove:{session_id}:{ex_id}:{context}")
+    kb.adjust(1)
+
+    await callback.message.edit_text(
+        f"⚠️ <b>ВНИМАНИЕ!</b>\n\n"
+        f"Ты собираешься <b>навсегда удалить</b> упражнение <b>{ex.name}</b> "
+        f"вместе со всей его историей подходов.\n\n"
+        f"Это действие <b>невозможно отменить</b>. Уверен?",
+        reply_markup=kb.as_markup()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tr_remove_hard_yes:"))
+async def cb_training_remove_hard_yes(callback: CallbackQuery,
+                                      session: AsyncSession):
+    parts = callback.data.split(":")
+    session_id = int(parts[1])
+    ex_id = int(parts[2])
+
+    ws = await session.get(WorkoutSession, session_id)
+    ex = await session.get(Exercise, ex_id)
+    if not ws or not ex:
+        return await callback.answer("Недоступно", show_alert=True)
+
+    # Удаляем историю, заметки и само упражнение
+    await session.execute(
+        delete(SessionSet).where(SessionSet.exercise_id == ex_id))
+    await session.execute(delete(SessionExerciseNote).where(
+        SessionExerciseNote.exercise_id == ex_id))
+    await session.delete(ex)
+    await session.commit()
+
+    text, kb = await render_list(session, session_id, ws.user_id)
+    await callback.message.edit_text(
+        f"🔥 Упражнение <b>{ex.name}</b> удалено навсегда.\n\n" + text,
+        reply_markup=kb
+    )
+    await callback.answer("Удалено")

@@ -88,19 +88,34 @@ def exercise_card_kb(ex: Exercise) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def confirm_delete_kb(ex_id: int, has_history: bool = False) -> InlineKeyboardMarkup:
+def confirm_delete_kb(ex_id: int,
+                      has_history: bool = False) -> InlineKeyboardMarkup:
     """Подтверждение удаления упражнения из справочника."""
     kb = InlineKeyboardBuilder()
     if has_history:
         kb.button(text="📦 Убрать в архив", callback_data=f"ex_del_yes:{ex_id}")
+        kb.button(text="🔥 Удалить навсегда",
+                  callback_data=f"ex_del_hard_ask:{ex_id}")
     else:
         kb.button(text="✅ Да, удалить", callback_data=f"ex_del_yes:{ex_id}")
+
     kb.button(text="❌ Отмена", callback_data=f"ex:{ex_id}")
     kb.adjust(1)
     return kb.as_markup()
 
 
+def confirm_hard_delete_kb(ex_id: int) -> InlineKeyboardMarkup:
+    """Двойное подтверждение жесткого удаления."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔥 Да, стереть историю",
+              callback_data=f"ex_del_hard_yes:{ex_id}")
+    kb.button(text="❌ Нет, я передумал", callback_data=f"ex_del:{ex_id}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
 def choose_kind_kb(wt_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура выбора типа упражнения (силовое или кардио)."""
     kb = InlineKeyboardBuilder()
     kb.button(text="🏋️ Силовое (подходы, повторения, вес)",
               callback_data=f"ex_new_kind:strength:{wt_id}")
@@ -452,6 +467,8 @@ def confirm_training_delete_kb(session_id: int, ex_id: int, context: str,
     if has_history:
         kb.button(text="📦 Убрать в архив",
                   callback_data=f"tr_remove_yes:{session_id}:{ex_id}:{context}")
+        kb.button(text="🔥 Удалить навсегда",
+                  callback_data=f"tr_remove_hard_ask:{session_id}:{ex_id}:{context}")
     else:
         kb.button(text="✅ Да, удалить",
                   callback_data=f"tr_remove_yes:{session_id}:{ex_id}:{context}")
