@@ -37,10 +37,10 @@ def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
                          last_exercise_name: str | None = None) -> str:
     from app.utils import fmt_msk_datetime, format_duration
 
+    # 1. Красивая шапка
     lines = [
-        f"🏋️ <b>{wt.name}</b>",
-        f"⏱ Начата: {fmt_msk_datetime(session_started)} (МСК)",
-        "",
+        f"⚡ <b>Тренировка: {wt.name}</b>",
+        f"<i>Начата: {fmt_msk_datetime(session_started)} (МСК)</i>\n",
     ]
 
     # 1. Считаем прогресс по ВСЕМ упражнениям (включая опциональные)
@@ -88,16 +88,19 @@ def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
 
     lines.append("")
 
+    # Блок таймеров/отдыха (единый стиль)
     if timer_str:
         lines.append(f"⏱ <b>Таймер:</b> {timer_str}")
     if rest_time_str:
         if last_exercise_name:
-            lines.append(
-                f"⏱ <i>Отдых после «{last_exercise_name}»: {rest_time_str}</i>")
+            lines.append(f"⏱ <b>Отдых после «{last_exercise_name}»:</b> {rest_time_str}")
         else:
-            lines.append(f"⏱ <i>Отдых: {rest_time_str}</i>")
+            lines.append(f"⏱ <b>Отдых:</b> {rest_time_str}")
 
-    lines.append(f"📊 Выполнено: <b>{done_ex} / {total_ex}</b> упражнений")
+    # 3. Красивый блок с прогрессом (в цитате)
+    lines.append(
+        f"<blockquote>📊 Выполнено: <b>{done_ex} / {total_ex}</b> упражнений</blockquote>")
+
     return "\n".join(lines)
 
 
