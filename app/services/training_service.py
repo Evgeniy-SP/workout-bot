@@ -4,6 +4,7 @@
 подготовка текстов и клавиатур для экранов.
 Никаких @router.message или @router.callback_query здесь быть не должно.
 """
+import random
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -16,11 +17,9 @@ from app.db.queries import (
     get_last_completed_set, get_last_note_for_exercise, get_sets_grouped,
 )
 from app.keyboards.workout_kb import (
-    approach_kb, cardio_done_kb, optional_list_kb, strength_summary_kb, training_list_kb,
+    approach_kb, optional_list_kb, training_list_kb,
 )
-from app.render import render_approach, render_strength_summary, \
-    render_training_list
-from app.utils import format_duration
+from app.render import render_approach, render_training_list
 
 # Глобальное хранилище активных таймеров: {session_id: dict}
 ACTIVE_TIMERS = {}
@@ -147,6 +146,14 @@ async def render_approach_screen(
             duration = format_duration(
                 s.duration_seconds) if s.duration_seconds else "—"
 
+            phrases = [
+                "🎉 <b>Отлично! Кардио выполнено!</b>",
+                "💪 <b>Класс! Время записано!</b>",
+                "🔥 <b>Хорошая работа! Заминка/разминка закрыта!</b>",
+                "🚀 <b>Есть! Кардио сделано!</b>"
+            ]
+            congrats = random.choice(phrases)
+
             note_text = ""
             if note_obj:
                 note_text = f"\n\n📝 <i>Заметка: {note_obj.note}</i>"
@@ -155,6 +162,7 @@ async def render_approach_screen(
 
             text = (
                     f"<b>{ex.name}</b>\n\n"
+                    f"{congrats}\n\n"
                     f"✅ Выполнено: <b>{duration}</b>\n\n"
                     "Можно изменить время, если ошиблись." + note_text
             )

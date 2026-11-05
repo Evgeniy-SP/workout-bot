@@ -1,5 +1,7 @@
 """Формирование текста карточек."""
+import random
 from datetime import datetime
+
 from app.db.models import Exercise, WorkoutType
 from app.utils import format_duration, format_weight
 
@@ -171,6 +173,15 @@ def render_strength_summary(ex: Exercise, sets: list) -> str:
     if not sets:
         return f"🏋️ <b>{ex.name}</b>\n\nПока нет подходов."
 
+    phrases = [
+        "🎉 <b>Отлично! Упражнение выполнено!</b>",
+        "💪 <b>Красавчик! Все подходы сделаны!</b>",
+        "🔥 <b>Так держать! Упражнение закрыто!</b>",
+        "🚀 <b>Мощно! Едем дальше!</b>",
+        "🏆 <b>Победа! Подходы выполнены!</b>"
+    ]
+    congrats = random.choice(phrases)
+
     total_reps = 0
     total_volume = 0.0
     for s in sets:
@@ -185,6 +196,7 @@ def render_strength_summary(ex: Exercise, sets: list) -> str:
     # 1. Сначала заголовок и список подходов
     lines = [
         f"🏋️ <b>{ex.name}</b>\n",
+        f"{congrats}\n",
         "📋 <b>Выполненные подходы:</b>"
     ]
 
