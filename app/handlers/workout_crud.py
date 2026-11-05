@@ -309,3 +309,36 @@ async def cb_delete_hard_yes(callback: CallbackQuery, session: AsyncSession):
             reply_markup=exercises_list_kb(wt.exercises, wt.id),
         )
     await callback.answer("Удалено")
+
+
+@router.callback_query(F.data.startswith("wt_del_hard_ask:"))
+async def cb_workout_delete_hard_ask(callback: CallbackQuery,
+                                     session: AsyncSession):
+    """Грозное предупреждение перед удалением тренировки с историей."""
+    wt_id = int(callback.data.split(":")[1])
+    user = await get_user(session, callback.from_user.id)
+    if not user:
+        return await callback.answer("Сначала /start", show_alert=True)
+
+    wt = await session.get(WorkoutType, wt_id)
+    if not wt or wt.user_id != user.id:
+        return await callback.answer("Не найдено", show_alert=True)
+
+    # Считаем историю
+    sessions_count = await session.scalar(
+        select(func.count()).select_from(WorkoutSession).where(
+            WorkoutSession.workout_type_id == wt_id)
+    ) or 0
+
+    from app.keyboards.workout_kb import confirm_workout_hard_delete_kb
+
+    text = (
+        f"⚠️ <b>ВНИМАНИЕ!</b>\n\n"
+        f"Ты собираешься <b>навсегда удалить</b> тренировку <b>{wt.name}</b> "
+        f"вместе со всей историей (<b>{sessions_count}</b> записей) и всеми упражнениями.\n\n"
+        f"Это действие <b>невозможно отменить</b>. Уверен?"
+    )
+    await callback.message.edit_text(text,
+                                     reply_markup=confirm_workout_hard_delete_kb(
+                                         wt_id))
+    await callback.answer()

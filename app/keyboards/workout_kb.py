@@ -127,21 +127,11 @@ def choose_kind_kb(wt_id: int) -> InlineKeyboardMarkup:
 
 
 def confirm_workout_delete_kb(wt_id: int, has_history: bool) -> InlineKeyboardMarkup:
-    """Подтверждение удаления тренировки.
-
-    Если есть история — предлагаем выбор: архив или жёсткое удаление.
-    Без истории — обычное удаление.
-    """
+    """Подтверждение удаления тренировки."""
     kb = InlineKeyboardBuilder()
     if has_history:
-        kb.button(
-            text="📦 Архивировать (история сохранится)",
-            callback_data=f"wt_archive:{wt_id}",
-        )
-        kb.button(
-            text="🔥 Удалить вместе с историей",
-            callback_data=f"wt_del_yes:{wt_id}",
-        )
+        kb.button(text="📦 Архивировать (история сохранится)", callback_data=f"wt_archive:{wt_id}")
+        kb.button(text="🔥 Удалить вместе с историей", callback_data=f"wt_del_hard_ask:{wt_id}") # <--- ИЗМЕНИЛИ
     else:
         kb.button(text="✅ Да, удалить", callback_data=f"wt_del_yes:{wt_id}")
     kb.button(text="❌ Отмена", callback_data=f"wt_del_no:{wt_id}")
@@ -467,8 +457,6 @@ def confirm_training_delete_kb(session_id: int, ex_id: int, context: str,
     if has_history:
         kb.button(text="📦 Убрать в архив",
                   callback_data=f"tr_remove_yes:{session_id}:{ex_id}:{context}")
-        kb.button(text="🔥 Удалить навсегда",
-                  callback_data=f"tr_remove_hard_ask:{session_id}:{ex_id}:{context}")
     else:
         kb.button(text="✅ Да, удалить",
                   callback_data=f"tr_remove_yes:{session_id}:{ex_id}:{context}")
@@ -483,6 +471,7 @@ def confirm_training_delete_kb(session_id: int, ex_id: int, context: str,
 
 
 def confirm_archive_delete_kb(ex_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления упражнения из архива."""
     kb = InlineKeyboardBuilder()
     kb.button(text="🔥 Да, удалить навсегда", callback_data=f"ex_arch_del_yes:{ex_id}")
     kb.button(text="❌ Отмена", callback_data=f"ex_arch_view:{ex_id}")
@@ -575,4 +564,13 @@ def main_reply_kb() -> ReplyKeyboardMarkup:
 def start_inline_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="ℹ️ Справка", callback_data="show_help")
+    return kb.as_markup()
+
+
+def confirm_workout_hard_delete_kb(wt_id: int) -> InlineKeyboardMarkup:
+    """Двойное подтверждение удаления тренировки с историей."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔥 ДА, СТЕРЕТЬ ВСЁ", callback_data=f"wt_del_yes:{wt_id}")
+    kb.button(text="❌ Нет, я передумал", callback_data=f"wt_del_no:{wt_id}")
+    kb.adjust(1)
     return kb.as_markup()
