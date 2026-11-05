@@ -36,7 +36,8 @@ def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
                          sets_by_ex: dict, session_started: datetime,
                          rest_time_str: str | None = None,
                          timer_str: str | None = None,
-                         last_exercise_name: str | None = None) -> str:
+                         last_exercise_name: str | None = None,
+                         session_note: str | None = None) -> str:
     from app.utils import fmt_msk_datetime, format_duration
 
     # 1. Красивая шапка
@@ -44,6 +45,9 @@ def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
         f"⚡ <b>Тренировка: {wt.name}</b>",
         f"<i>Начата: {fmt_msk_datetime(session_started)} (МСК)</i>\n",
     ]
+
+    if session_note:
+        lines.append(f"📝 <i>{session_note}</i>\n")
 
     # 1. Считаем прогресс по ВСЕМ упражнениям (включая опциональные)
     done_ex = 0

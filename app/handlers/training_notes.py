@@ -6,7 +6,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import SessionExerciseNote, WorkoutSession
-from app.keyboards.workout_kb import note_edit_kb
+from app.keyboards.workout_kb import cancel_kb, note_edit_kb
 from app.services.training_service import render_approach_screen, render_list
 from app.states import TrainingFSM
 
@@ -104,3 +104,50 @@ async def cb_note_ex_delete(callback: CallbackQuery, session: AsyncSession,
                                          reply_markup=kb)
 
     await callback.answer("Удалено")
+
+
+@router.callback_query(F.data.startswith("tr_sess_note:"))
+async def cb_session_note_start(callback: CallbackQuery, session: AsyncSession,
+                                state: FSMContext):
+    session_id = int(callback.data.split(":")[1])
+    ws = await session.get(WorkoutSession, session_id)
+    if not ws:
+        return await callback.answer("Тренировка не найдена", show_alert=True)
+
+    await state.clear()
+    await state.set_state(TrainingFSM.entering_session_note)
+    await state.update_data(session_id=session_id, return_to="tr_list",
+                            return_to_session=session_id)
+
+    current_text = ""
+    if ws.notes:
+        current_text = f"\n\n<b>Текущая заметка:</b>\n<code>{ws.notes}</code>"
+
+    await callback.message.edit_text(
+        f"📝 <b>Общая заметка к тренировке</b>{current_text}\n\n"
+        "Напиши что-нибудь (например, «плохо спал», «болит плечо»):",
+        reply_markup=cancel_kb()
+    )
+    await callback.answer()
+
+
+@router.message(TrainingFSM.entering_session_note)
+async def fsm_session_note_save(message: Message, state: FSMContext,
+                                session: AsyncSession):
+    data = await state.get_data()
+    session_id = data["session_id"]
+
+    ws = await session.get(WorkoutSession, session_id)
+    if ws:
+        text = message.text.strip()
+        ws.notes = text if text else None
+        await session.commit()
+
+    await state.clear()
+
+    from app.services.training_service import render_list
+    text_screen, kb = await render_list(session, session_id, ws.user_id)
+    await message.answer(
+        "✅ Заметка сохранена.\n\n" + text_screen,
+        reply_markup=kb
+    )

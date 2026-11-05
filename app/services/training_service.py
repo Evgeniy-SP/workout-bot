@@ -318,7 +318,8 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
         ws.started_at,
         rest_time_str=rest_time_str,
         timer_str=timer_str,
-        last_exercise_name=last_ex_name
+        last_exercise_name=last_ex_name,
+        session_note=ws.notes,
     )
 
     optional_count = sum(1 for e in exercises if e.is_optional)

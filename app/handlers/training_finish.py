@@ -355,6 +355,10 @@ async def cb_finish_confirm(callback: CallbackQuery, session: AsyncSession,
     lines.append("")
     lines.append(f"<i>{random.choice(phrases)}</i>")
 
+    if ws.notes:
+        lines.append("")
+        lines.append(f"📝 <b>Заметка к тренировке:</b>\n<i>{ws.notes}</i>")
+
     await callback.message.edit_text("\n".join(lines),
                                      reply_markup=after_finish_kb())
     await callback.answer("Тренировка завершена")

@@ -39,3 +39,4 @@ class TrainingFSM(StatesGroup):
     entering_duration = State()
     entering_exercise_note = State()
     entering_rest_time = State()
+    entering_session_note = State()

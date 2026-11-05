@@ -191,17 +191,14 @@ def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
                   callback_data=f"tr_refresh_list:{session_id}")
         sizes.append(1)
 
-    # Возвращаем полные названия в один столбик (чтобы ничего не обрезалось)
-    kb.button(text="➕ Добавить упражнение",
-              callback_data=f"tr_ex_add:{session_id}")
-    sizes.append(1)
+    # Группируем действия по 2 в ряд, чтобы сэкономить место
+    kb.button(text="➕ Добавить", callback_data=f"tr_ex_add:{session_id}")
+    kb.button(text="📝 Заметка", callback_data=f"tr_sess_note:{session_id}")
+    sizes.append(2)  # В один ряд
 
-    kb.button(text="🏁 Завершить тренировку",
-              callback_data=f"tr_finish:{session_id}")
-    sizes.append(1)
-
-    kb.button(text="⬅️ В меню тренировки", callback_data=f"wt:{wt_id}")
-    sizes.append(1)
+    kb.button(text="🏁 Завершить", callback_data=f"tr_finish:{session_id}")
+    kb.button(text="⬅️ В меню", callback_data=f"wt:{wt_id}")
+    sizes.append(2)  # В один ряд
 
     kb.adjust(*sizes)
     return kb.as_markup()
