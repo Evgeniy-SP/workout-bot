@@ -99,7 +99,7 @@ def confirm_delete_kb(ex_id: int,
     else:
         kb.button(text="✅ Да, удалить", callback_data=f"ex_del_yes:{ex_id}")
 
-    kb.button(text="❌ Отмена", callback_data=f"ex:{ex_id}")
+    kb.button(text="❌ Нет, я передумал", callback_data=f"ex:{ex_id}")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -121,23 +121,26 @@ def choose_kind_kb(wt_id: int) -> InlineKeyboardMarkup:
               callback_data=f"ex_new_kind:strength:{wt_id}")
     kb.button(text="🏃 Кардио / разминка (длительность)",
               callback_data=f"ex_new_kind:cardio:{wt_id}")
-    kb.button(text="⬅️ Отмена", callback_data=f"wt_ex:{wt_id}")
+    kb.button(text="⬅️ Назад", callback_data=f"wt_ex:{wt_id}")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def confirm_workout_delete_kb(wt_id: int, has_history: bool) -> InlineKeyboardMarkup:
+def confirm_workout_delete_kb(wt_id: int,
+                              has_history: bool) -> InlineKeyboardMarkup:
     """Подтверждение удаления тренировки."""
     kb = InlineKeyboardBuilder()
     if has_history:
-        kb.button(text="📦 Архивировать (история сохранится)", callback_data=f"wt_archive:{wt_id}")
-        kb.button(text="🔥 Удалить вместе с историей", callback_data=f"wt_del_hard_ask:{wt_id}") # <--- ИЗМЕНИЛИ
+        kb.button(text="📦 Архивировать (история сохранится)",
+                  callback_data=f"wt_archive:{wt_id}")
+        kb.button(text="🔥 Удалить вместе с историей",
+                  callback_data=f"wt_del_hard_ask:{wt_id}")
     else:
         kb.button(text="✅ Да, удалить", callback_data=f"wt_del_yes:{wt_id}")
-    kb.button(text="❌ Отмена", callback_data=f"wt_del_no:{wt_id}")
+
+    kb.button(text="❌ Нет, я передумал", callback_data=f"wt_del_no:{wt_id}")
     kb.adjust(1)
     return kb.as_markup()
-
 
 def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
                      sets_by_ex: dict, has_timer: bool = False,
@@ -445,7 +448,7 @@ def note_edit_kb(session_id: int, ex_id: int, has_note: bool) -> InlineKeyboardM
     kb = InlineKeyboardBuilder()
     if has_note:
         kb.button(text="🗑 Удалить заметку", callback_data=f"tr_note_del:{session_id}:{ex_id}")
-    kb.button(text="❌ Отмена", callback_data=f"tr_ex:{session_id}:{ex_id}")
+    kb.button(text="⬅️ Назад", callback_data=f"tr_ex:{session_id}:{ex_id}")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -474,7 +477,7 @@ def confirm_archive_delete_kb(ex_id: int) -> InlineKeyboardMarkup:
     """Клавиатура подтверждения удаления упражнения из архива."""
     kb = InlineKeyboardBuilder()
     kb.button(text="🔥 Да, удалить навсегда", callback_data=f"ex_arch_del_yes:{ex_id}")
-    kb.button(text="❌ Отмена", callback_data=f"ex_arch_view:{ex_id}")
+    kb.button(text="❌ Нет, я передумал", callback_data=f"ex:{ex_id}")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -483,7 +486,7 @@ def workout_description_kb() -> InlineKeyboardMarkup:
     """Клавиатура при создании тренировки (шаг с описанием)."""
     kb = InlineKeyboardBuilder()
     kb.button(text="⏭ Пропустить", callback_data="wt_desc_skip")
-    kb.button(text="❌ Отмена", callback_data="fsm_cancel")
+    kb.button(text="⬅️ Назад", callback_data="wt_desc_back") # <--- Заменили Отмену на Назад
     kb.adjust(1)
     return kb.as_markup()
 

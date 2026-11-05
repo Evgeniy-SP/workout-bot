@@ -64,9 +64,9 @@ async def rename_workout_start(callback: CallbackQuery, state: FSMContext, sessi
     await state.update_data(wt_id=wt_id, return_to="wt_card")
     await state.set_state(WorkoutEdit.renaming_type)
     await callback.message.edit_text(
-        f"✏️ Текущее название: <b>{wt.name}</b>\n\n"
-        "Введи новое название :",
-        reply_markup=cancel_kb()
+        f"✏️ Текущее название:\n<b><code>{wt.name}</code></b>\n\n"
+        "Введи новое название (нажми на старое, чтобы скопировать):",
+        reply_markup=cancel_kb(),
     )
     await callback.answer()
 
@@ -112,8 +112,10 @@ async def edit_name_start(callback: CallbackQuery, state: FSMContext, session: A
     await state.update_data(ex_id=ex_id, return_to="ex_card")
     await state.set_state(WorkoutEdit.editing_exercise_name)
     await callback.message.edit_text(
-        f"✏️ Текущее: <b>{ex.name}</b>\n\nВведи новое название:",
-        reply_markup=cancel_kb()
+        f"✏️ Текущее название:\n<b><code>{ex.name}</code></b>\n\n"
+        "Введи новое название:\n"
+        "<i>(Нажми на старое название, чтобы скопировать)</i>",
+        reply_markup=cancel_kb(),
     )
     await callback.answer()
 
@@ -159,9 +161,10 @@ async def edit_sets_start(callback: CallbackQuery, state: FSMContext, session: A
     await state.update_data(ex_id=ex_id, return_to="ex_card")
     await state.set_state(WorkoutEdit.editing_exercise_sets)
     await callback.message.edit_text(
-        f"🔢 Текущее количество подходов: <b>{ex.sets}</b>\n\n"
-        "Введи новое число (целое, больше 0):",
-        reply_markup=cancel_kb()
+        f"🔢 Текущее количество подходов:\n<b><code>{ex.sets}</code></b>\n\n"
+        "Введи новое число (целое, больше 0):\n"
+        "<i>(Нажми на текущее число, чтобы скопировать)</i>",
+        reply_markup=cancel_kb(),
     )
     await callback.answer()
 
@@ -207,9 +210,10 @@ async def edit_reps_start(callback: CallbackQuery, state: FSMContext, session: A
     await state.update_data(ex_id=ex_id, return_to="ex_card")
     await state.set_state(WorkoutEdit.editing_exercise_reps)
     await callback.message.edit_text(
-        f"🔁 Текущее количество повторений: <b>{ex.reps}</b>\n\n"
-        "Введи новое число (целое, больше 0):",
-        reply_markup=cancel_kb()
+        f"🔄 Текущее количество повторений:\n<b><code>{ex.reps}</code></b>\n\n"
+        "Введи новое число (целое, больше 0):\n"
+        "<i>(Нажми на текущее число, чтобы скопировать)</i>",
+        reply_markup=cancel_kb(),
     )
     await callback.answer()
 
@@ -256,10 +260,9 @@ async def edit_weight_start(callback: CallbackQuery, state: FSMContext, session:
     await state.update_data(ex_id=ex_id, return_to="ex_card")
     await state.set_state(WorkoutEdit.editing_exercise_weight)
     await callback.message.edit_text(
-        f"⚖️ Текущий вес: <b>{current}</b>\n\n"
-        "Введи новый вес (например <code>12.5</code>) или текст "
-        "(например <code>Своё тело</code>, <code>Резинка</code>).\n"
-        "Или отправь <code>-</code>, чтобы убрать вес совсем:",
+        f"⚖️ Текущий вес:\n<b><code>{current}</code></b>\n\n"
+        "Введи новый вес (например 12.5) или текст (например «Своё тело»):\n"
+        "<i>(Нажми на текущий вес, чтобы скопировать)</i>",
         reply_markup=cancel_kb(),
     )
     await callback.answer()
@@ -306,10 +309,10 @@ async def edit_duration_start(callback: CallbackQuery, state: FSMContext, sessio
     await state.update_data(ex_id=ex_id, return_to="ex_card")
     await state.set_state(WorkoutEdit.editing_exercise_duration)
     await callback.message.edit_text(
-        f"⏱ Текущая длительность: <b>{current}</b>\n\n"
-        "Введи новую длительность в минутах (можно дробное: <code>1.5</code> = 1 мин 30 сек).\n"
-        "Или <code>0</code> / <code>-</code>, чтобы «по факту»:",
-        reply_markup=cancel_kb()
+        f"⏱ Текущая длительность:\n<b><code>{current}</code></b>\n\n"
+        "Введи новую длительность в минутах (можно 1.5):\n"
+        "<i>(Нажми на текущее время, чтобы скопировать)</i>",
+        reply_markup=cancel_kb(),
     )
     await callback.answer()
 

@@ -136,7 +136,6 @@ async def cb_workout_delete_ask(callback: CallbackQuery,
     else:
         text = (
             f"Удалить тренировку <b>{wt.name}</b>?\n\n"
-            "Все упражнения в ней будут удалены. "
             "Истории выполнения нет — терять нечего."
         )
 

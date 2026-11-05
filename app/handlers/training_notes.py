@@ -32,7 +32,7 @@ async def cb_note_ex_start(callback: CallbackQuery, session: AsyncSession,
         )
     )
     note = existing.scalar_one_or_none()
-    current_text = f"\n\n<i>Текущая: {note.note}</i>" if note else ""
+    current_text = f"\n\n<b>Текущая заметка:</b>\n<b><code>{note.note}</code></b>" if note else ""
 
     await callback.message.edit_text(
         f"📝 <b>Заметка к упражнению</b>{current_text}\n\n"

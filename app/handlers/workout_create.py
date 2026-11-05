@@ -61,6 +61,22 @@ async def cb_skip_description(callback: CallbackQuery, state: FSMContext, sessio
     await callback.answer()
 
 
+@router.callback_query(F.data == "wt_desc_back",
+                       WorkoutCreate.adding_type_description)
+async def cb_desc_back(callback: CallbackQuery, state: FSMContext):
+    """Возврат к вводу названия тренировки."""
+    data = await state.get_data()
+    old_name = data.get("type_name", "")
+
+    await state.set_state(WorkoutCreate.adding_type_name)
+    await callback.message.edit_text(
+        f"➕ Введи название новой тренировки:\n\n"
+        f"<i>Прошлое название (нажми на него, чтобы скопировать):</i>\n"
+        f"<b><code>{old_name}</code></b>"
+    )
+    await callback.answer()
+
+
 async def _finish_creation(message: Message, state: FSMContext, session: AsyncSession, user_id: int, description: str | None):
     """Общая логика сохранения тренировки (для текста и для кнопки Пропустить)."""
     data = await state.get_data()

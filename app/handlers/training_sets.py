@@ -335,7 +335,7 @@ async def cb_edit_set(callback: CallbackQuery, session: AsyncSession,
     await state.set_state(TrainingFSM.entering_reps)
     await callback.message.edit_text(
         f"<b>{ex.name}</b> — подход {target.set_number}\n\n"
-        f"Сейчас: <b>{target.reps} × {weight_text}</b>\n\n"
+        f"Сейчас:\n<b><code>{target.reps} × {weight_text}</code></b>\n\n"
         "Сколько повторов сделал на самом деле? Введи число:",
         reply_markup=edit_set_kb(session_id, set_id, can_delete=can_delete),
     )
