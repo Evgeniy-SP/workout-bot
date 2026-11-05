@@ -180,13 +180,16 @@ def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
     sizes.append(2)
 
     if has_timer:
-        kb.button(text="⏹ Остановить таймер",
+        # Добавили часики и заменили "Стоп" на "Отменить"
+        kb.button(text="⏱️ Отменить",
                   callback_data=f"tr_timer_stop:{session_id}:list")
+        kb.button(text="⏱️ Обновить",
+                  callback_data=f"tr_refresh_list:{session_id}")
+        sizes.append(2)
+    else:
+        kb.button(text="⏱️ Обновить время отдыха",
+                  callback_data=f"tr_refresh_list:{session_id}")
         sizes.append(1)
-
-    kb.button(text="🔄 Обновить время отдыха",
-              callback_data=f"tr_refresh_list:{session_id}")
-    sizes.append(1)
 
     # Возвращаем полные названия в один столбик (чтобы ничего не обрезалось)
     kb.button(text="➕ Добавить упражнение",
@@ -255,18 +258,21 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                   callback_data=f"tr_timer:60:{session_id}:ex:{ex.id}")
         kb.button(text="⏱ 90с",
                   callback_data=f"tr_timer:90:{session_id}:ex:{ex.id}")
-        kb.button(text="⏱ Своё время",
+        kb.button(text="⏱ Своё",
                   callback_data=f"tr_timer_custom:{session_id}:ex:{ex.id}")
         sizes.append(3)
 
         if has_timer:
-            kb.button(text="⏹ Остановить таймер",
+            # Добавили часики и заменили "Стоп" на "Отменить"
+            kb.button(text="⏱️ Отменить",
                       callback_data=f"tr_timer_stop:{session_id}:ex:{ex.id}")
+            kb.button(text="⏱️ Обновить",
+                      callback_data=f"tr_refresh:{session_id}:{ex.id}")
+            sizes.append(2)
+        else:
+            kb.button(text="⏱️ Обновить время отдыха",
+                      callback_data=f"tr_refresh:{session_id}:{ex.id}")
             sizes.append(1)
-
-        kb.button(text="🔄 Обновить время отдыха",
-                  callback_data=f"tr_refresh:{session_id}:{ex.id}")
-        sizes.append(1)
 
     kb.button(text="📝 Заметка",
               callback_data=f"tr_note_ex:{session_id}:{ex.id}")
