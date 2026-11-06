@@ -37,7 +37,9 @@ def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
                          rest_time_str: str | None = None,
                          timer_str: str | None = None,
                          last_exercise_name: str | None = None,
-                         session_note: str | None = None) -> str:
+                         session_note: str | None = None,
+                         last_session_note: str | None = None
+                         ) -> str:
     from app.utils import fmt_msk_datetime, format_duration
 
     # 1. Красивая шапка
@@ -46,8 +48,17 @@ def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
         f"<i>Начата: {fmt_msk_datetime(session_started)} (МСК)</i>\n",
     ]
 
+    # Выводим ТЕКУЩУЮ заметку (если есть)
     if session_note:
-        lines.append(f"📝 <i>{session_note}</i>\n")
+        lines.append(f"📝 <i>Текущая заметка: {session_note}</i>")
+
+    # Выводим ПРОШЛУЮ заметку (если есть)
+    if last_session_note:
+        lines.append(f"📝 <i>Прошлая заметка: {last_session_note}</i>")
+
+    # Если была хотя бы одна заметка, добавляем отступ перед списком упражнений
+    if session_note or last_session_note:
+        lines.append("")
 
     # 1. Считаем прогресс по ВСЕМ упражнениям (включая опциональные)
     done_ex = 0
@@ -117,11 +128,11 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
                     last_note: str | None = None,
                     last_duration: int | None = None,
                     rest_time_str: str | None = None,
-                    timer_str: str | None = None) -> str:
+                    timer_str: str | None = None,
+                    current_note: str | None = None) -> str:
     from app.utils import format_duration
 
     if ex.kind == "strength":
-        # 1. Формируем блок истории/плана
         if last_reps or last_weight:
             display_reps = last_reps if last_reps else planned_reps
             display_weight = format_weight(
@@ -132,10 +143,6 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
             display_weight = format_weight(planned_weight)
             history_text = f"📋 <b>План: {display_reps} × {display_weight}</b>"
 
-        if last_note:
-            history_text += f"\n📝 <i>{last_note}</i>"
-
-        # 2. Собираем всё в красивую цитату
         done_sets = set_num - 1
         blockquote = (
             f"<blockquote>"
@@ -145,18 +152,30 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
             f"</blockquote>"
         )
 
-        # 3. Дополнительный блок (таймер и отдых)
-        extra = ""
-        if timer_str:
-            extra += f"\n⏱ <b>Таймер:</b> {timer_str}"
-        if rest_time_str:
-            extra += f"\n⏱ <i>Отдых: {rest_time_str}</i>"
+        # --- 1. Собираем верхнюю часть (Название + Заметки) ---
+        text_parts = [f"🏋️ <b>{ex.name}</b>"]
+        if current_note:
+            text_parts.append(f"📝 <i>Текущая заметка: {current_note}</i>")
+        if last_note:
+            text_parts.append(f"📝 <i>Прошлая заметка: {last_note}</i>")
 
-        return (
-            f"🏋️ <b>{ex.name}</b>\n\n"
-            f"{blockquote}"
-            f"{extra}"
-        )
+        # Склеиваем через двойной перенос (пустая строка)
+        text_above = "\n\n".join(text_parts)
+
+        # --- 2. Собираем нижнюю часть (Таймеры) ---
+        extra_parts = []
+        if timer_str:
+            extra_parts.append(f"⏱ <b>Таймер:</b> {timer_str}")
+        if rest_time_str:
+            extra_parts.append(f"⏱ <i>Отдых: {rest_time_str}</i>")
+        extra = "\n".join(extra_parts)
+
+        # --- 3. Собираем всё вместе ---
+        final_text = f"{text_above}\n\n{blockquote}"
+        if extra:
+            final_text += f"\n\n{extra}"
+
+        return final_text
 
     # ─── КАРДИО ───
     if last_duration:
@@ -164,19 +183,27 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
     else:
         duration_header = f"📋 <b>План: {format_duration(planned_duration)}</b>"
 
-    note_text = f"\n📝 <i>{last_note}</i>" if last_note else ""
+    blockquote = f"<blockquote>{duration_header}</blockquote>"
 
-    blockquote = f"<blockquote>{duration_header}{note_text}</blockquote>"
+    # Собираем верхнюю часть (Название + Заметки)
+    text_parts = [f"🏃 <b>{ex.name}</b>"]
+    if current_note:
+        text_parts.append(f"📝 <i>Текущая заметка: {current_note}</i>")
+    if last_note:
+        text_parts.append(f"📝 <i>Прошлая заметка: {last_note}</i>")
 
-    return (
-        f"🏃 <b>{ex.name}</b>\n\n"
-        f"{blockquote}"
-    )
+    text_above = "\n\n".join(text_parts)
 
-def render_strength_summary(ex: Exercise, sets: list) -> str:
+    return f"{text_above}\n\n{blockquote}"
+
+
+def render_strength_summary(ex: Exercise, sets: list,
+                            current_note: str | None = None,
+                            last_note: str | None = None) -> str:
     if not sets:
         return f"🏋️ <b>{ex.name}</b>\n\nПока нет подходов."
 
+    import random
     phrases = [
         "🎉 <b>Отлично! Упражнение выполнено!</b>",
         "💪 <b>Красавчик! Все подходы сделаны!</b>",
@@ -197,26 +224,34 @@ def render_strength_summary(ex: Exercise, sets: list) -> str:
         total_reps += reps
         total_volume += reps * weight
 
-    # 1. Сначала заголовок и список подходов
-    lines = [
-        f"🏋️ <b>{ex.name}</b>\n",
-        f"{congrats}\n",
-        "📋 <b>Выполненные подходы:</b>"
-    ]
+    # 1. Заголовок
+    lines = [f"🏋️ <b>{ex.name}</b>\n"]
 
+    # 2. Заметки (если есть)
+    if current_note:
+        lines.append(f"📝 <i>Текущая заметка: {current_note}</i>")
+    if last_note:
+        lines.append(f"📝 <i>Прошлая заметка: {last_note}</i>")
+    if current_note or last_note:
+        lines.append("")  # Пустая строка для отступа
+
+    lines.append(f"{congrats}\n")
+    lines.append("📋 <b>Выполненные подходы:</b>")
+
+    # 3. Подходы
     for s in sets:
         reps = s.reps or 0
         weight_text = format_weight(s.weight_kg)
-        # Добавили галочку и жирный шрифт для красоты
         lines.append(f"✅ <b>{s.set_number}.</b> {reps} × <b>{weight_text}</b>")
 
-    # 2. В самом низу — красивая цитата со статистикой
+    # 4. Статистика
     stats = f"<blockquote>📈 Всего повторов: <b>{total_reps}</b>"
     if total_volume > 0:
         stats += f"\n⚖️ Тоннаж: <b>{total_volume:g} кг</b>"
     stats += "</blockquote>"
 
     lines.append(f"\n{stats}")
+    lines.append(
+        "\n💡 <i>Нажми на подход, чтобы изменить его, или добавь новый.</i>")
 
-    lines.append("\n💡 <i>Нажми на подход, чтобы изменить его, или добавь новый.</i>")
     return "\n".join(lines)

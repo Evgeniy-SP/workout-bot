@@ -14,7 +14,10 @@ from sqlalchemy.orm import selectinload
 from app.db.models import Exercise, SessionExerciseNote, SessionSet, User, \
     WorkoutSession, WorkoutType
 from app.db.queries import (
-    get_last_completed_set, get_last_note_for_exercise, get_sets_grouped,
+    get_last_completed_set,
+    get_last_note_for_exercise,
+    get_last_workout_note,
+    get_sets_grouped,
 )
 from app.keyboards.workout_kb import (
     approach_kb, optional_list_kb, training_list_kb,
@@ -55,31 +58,23 @@ async def render_approach_screen(
     from app.keyboards.workout_kb import cardio_done_kb, strength_summary_kb
     from app.render import render_strength_summary
     from app.utils import format_duration
+    import random  # Добавили random для поздравлений
 
     ws = await session.get(WorkoutSession, session_id)
     ex = await session.get(Exercise, ex_id)
 
-    # Отладка
-    if not ws:
-        print("DEBUG: ws is None")
-        return None
-    if not ex:
-        print(f"DEBUG: ex is None for ex_id={ex_id}")
-        return None
-    if ws.finished_at:
-        print("DEBUG: ws is finished")
+    if not ws or not ex or ws.finished_at:
         return None
 
     wt = await load_workout(session, ws.workout_type_id)
     sets_by_ex = await get_sets_grouped(session, session_id)
 
-    # ─── УМНЫЙ ПОИСК УПРАЖНЕНИЙ ───
+    # ─── УМНЫЙ ПОИСК УПРАЖНЕНИЙ (оставляем как было) ───
     next_ex_id = None
     prev_ex_id = None
     if wt:
         main_exercises = sorted([e for e in wt.exercises if not e.is_optional],
                                 key=lambda e: e.sort_order)
-
         current_idx = -1
         for i, e in enumerate(main_exercises):
             if e.id == ex_id:
@@ -87,7 +82,6 @@ async def render_approach_screen(
                 break
 
         if current_idx != -1:
-            # 1. Ищем следующее НЕВЫПОЛНЕННОЕ вперед
             for i in range(current_idx + 1, len(main_exercises)):
                 n_ex = main_exercises[i]
                 n_sets = sets_by_ex.get(n_ex.id, [])
@@ -97,7 +91,6 @@ async def render_approach_screen(
                     next_ex_id = n_ex.id
                     break
 
-            # 2. Если впереди нет, смотрим назад
             if not next_ex_id:
                 for i in range(0, current_idx):
                     n_ex = main_exercises[i]
@@ -108,7 +101,6 @@ async def render_approach_screen(
                         next_ex_id = n_ex.id
                         break
 
-            # 3. Если ВСЕ упражнения выполнены, включаем режим навигации
             if not next_ex_id and len(main_exercises) > 1:
                 if current_idx < len(main_exercises) - 1:
                     next_ex_id = main_exercises[current_idx + 1].id
@@ -119,19 +111,21 @@ async def render_approach_screen(
     sets = sets_by_ex.get(ex_id, [])
     completed = [s for s in sets if s.completed]
 
+    # --- ДОСТАЕМ ЗАМЕТКУ (ТЕКУЩУЮ) ЗАРАНЕЕ, ЧТОБЫ ОНА БЫЛА ДОСТУПНА ВЕЗДЕ ---
+    note_res = await session.execute(
+        select(SessionExerciseNote).where(
+            SessionExerciseNote.session_id == session_id,
+            SessionExerciseNote.exercise_id == ex_id
+        )
+    )
+    note_obj = note_res.scalar_one_or_none()
+    # -------------------------------------------------------------------------
+
     text, kb = "", None
 
     # ─── КАРДИО ───
     if ex.kind != "strength":
         can_remove = not completed
-
-        note_res = await session.execute(
-            select(SessionExerciseNote).where(
-                SessionExerciseNote.session_id == session_id,
-                SessionExerciseNote.exercise_id == ex_id
-            )
-        )
-        note_obj = note_res.scalar_one_or_none()
 
         last_set = await get_last_completed_set(session, ws.user_id, ex_id,
                                                 current_session_id=session_id)
@@ -146,35 +140,35 @@ async def render_approach_screen(
             duration = format_duration(
                 s.duration_seconds) if s.duration_seconds else "—"
 
+            # ВОЗВРАЩАЕМ ПОЗДРАВЛЕНИЯ
             phrases = [
                 "🎉 <b>Отлично! Кардио выполнено!</b>",
                 "💪 <b>Класс! Время записано!</b>",
-                "🔥 <b>Хорошая работа! Заминка/разминка закрыта!</b>",
-                "🚀 <b>Есть! Кардио сделано!</b>"
+                "🔥 <b>Хорошая работа! Кардио закрыто!</b>",
+                "🚀 <b>Есть! Сделано!</b>"
             ]
             congrats = random.choice(phrases)
 
             note_text = ""
             if note_obj:
-                note_text = f"\n\n📝 <i>Заметка: {note_obj.note}</i>"
-            elif last_note:
-                note_text = f"\n\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>"
+                note_text += f"\n\n📝 <i>Текущая заметка: {note_obj.note}</i>"
+            if last_note:
+                note_text += f"\n\n📝 <i>Прошлая заметка: {last_note}</i>"
 
             text = (
-                f"<b>{ex.name}</b>\n\n"
-                f"✅ Выполнено: <b>{duration}</b>\n\n"
-                "💡 <i>Нажми на кнопку ниже, чтобы изменить время или добавить заметку.</i>" + note_text
+                    f"<b>{ex.name}</b>\n\n"
+                    f"{congrats}\n\n"
+                    f"✅ Выполнено: <b>{duration}</b>" + note_text
             )
-            kb = cardio_done_kb(session_id, ex, can_remove=can_remove, next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
+            kb = cardio_done_kb(session_id, ex, can_remove=can_remove,
+                                next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
         else:
             text = render_approach(
                 ex, 1, None, None, ex.duration_seconds,
                 last_note=last_note,
                 last_duration=last_duration,
+                current_note=note_obj.note if note_obj else None
             )
-            if note_obj:
-                text += f"\n\n📝 <i>Заметка: {note_obj.note}</i>"
-
             kb = approach_kb(
                 session_id, ex, 1, None, None,
                 planned_duration=last_duration or ex.duration_seconds,
@@ -184,24 +178,30 @@ async def render_approach_screen(
         return text, kb
 
     # ─── СИЛОВОЕ ───
+
+    # Сначала достаем историю и заметку из прошлой тренировки
+    last_set = await get_last_completed_set(session, ws.user_id, ex_id,
+                                            current_session_id=session_id)
+    last_reps = last_set.reps if last_set else None
+    last_weight = last_set.weight_kg if last_set else None
+
+    last_note = None
+    if last_set:
+        last_note = await get_last_note_for_exercise(session, ex_id,
+                                                     last_set.session_id)
+
     plan = ex.sets or 0
     if plan > 0 and len(completed) >= plan:
-        # Все подходы сделаны — экран итогов
-        text = render_strength_summary(ex, completed)
+        # Передаем текущую и прошлую заметки в функцию итогов
+        text = render_strength_summary(
+            ex, completed,
+            current_note=note_obj.note if note_obj else None,
+            last_note=last_note
+        )
         kb = strength_summary_kb(session_id, ex, completed,
                                  next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
     else:
-        # Очередной подход
         set_num = len(completed) + 1
-        last_set = await get_last_completed_set(session, ws.user_id, ex_id,
-                                                current_session_id=session_id)
-        last_reps = last_set.reps if last_set else None
-        last_weight = last_set.weight_kg if last_set else None
-
-        last_note = None
-        if last_set:
-            last_note = await get_last_note_for_exercise(session, ex_id,
-                                                         last_set.session_id)
 
         rest_time_str = None
         timer_str = None
@@ -237,7 +237,8 @@ async def render_approach_screen(
             last_weight=last_weight,
             last_note=last_note,
             rest_time_str=rest_time_str,
-            timer_str=timer_str
+            timer_str=timer_str,
+            current_note=note_obj.note if note_obj else None
         )
         kb = approach_kb(
             session_id, ex, set_num, action_reps, action_weight,
@@ -247,17 +248,6 @@ async def render_approach_screen(
             has_timer=(timer_str is not None)
         )
 
-    # Добавляем заметку из ТЕКУЩЕЙ сессии, если она есть (для силовых)
-    note_res = await session.execute(
-        select(SessionExerciseNote).where(
-            SessionExerciseNote.session_id == session_id,
-            SessionExerciseNote.exercise_id == ex_id
-        )
-    )
-    note_obj = note_res.scalar_one_or_none()
-    if note_obj:
-        text += f"\n\n📝 <i>Заметка: {note_obj.note}</i>"
-
     return text, kb
 
 
@@ -266,7 +256,6 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
     ws = await session.get(WorkoutSession, session_id)
     wt = await load_workout(session, ws.workout_type_id)
 
-    # Сортируем СТРОГО по порядку, который задал пользователь (без учета опциональности)
     exercises = sorted(wt.exercises, key=lambda e: e.sort_order)
     sets_by_ex = await get_sets_grouped(session, session_id)
 
@@ -301,12 +290,19 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
         if remaining > 0:
             timer_str = f"осталось {remaining} сек"
 
-    # Для текста передаем обязательные + те опциональные, которые уже начаты/сделаны
     visible_exercises = []
     for ex in exercises:
         sets = sets_by_ex.get(ex.id, [])
-        if not ex.is_optional or sets:  # Если обязательное ИЛИ есть подходы (сделано)
+        if not ex.is_optional or sets:
             visible_exercises.append(ex)
+
+    last_session_note = await get_last_workout_note(
+        session,
+        user_id,
+        ws.workout_type_id,
+        session_id,
+    )
+    # --------------------------------------------------------
 
     text = render_training_list(
         wt,
@@ -318,6 +314,7 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
         timer_str=timer_str,
         last_exercise_name=last_ex_name,
         session_note=ws.notes,
+        last_session_note=last_session_note
     )
 
     optional_count = sum(1 for e in exercises if e.is_optional)

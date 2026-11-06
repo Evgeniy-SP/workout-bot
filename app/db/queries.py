@@ -81,3 +81,27 @@ async def get_last_note_for_exercise(
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def get_last_workout_note(
+        session: AsyncSession, user_id: int, workout_type_id: int,
+        current_session_id: int
+) -> str | None:
+    """Возвращает заметку из ПРЕДЫДУЩЕЙ тренировки этого типа.
+
+    Если в предыдущей тренировке заметки не было, возвращает None.
+    """
+    result = await session.execute(
+        select(WorkoutSession.notes)
+        .where(
+            WorkoutSession.user_id == user_id,
+            WorkoutSession.workout_type_id == workout_type_id,
+            WorkoutSession.id != current_session_id,
+        )
+        .order_by(WorkoutSession.started_at.desc())
+        .limit(1)  # Берем ровно одну (предыдущую) тренировку
+    )
+    note = result.scalar_one_or_none()
+
+    # Если заметка есть и она не пустая - возвращаем, иначе None
+    return note if note else None
