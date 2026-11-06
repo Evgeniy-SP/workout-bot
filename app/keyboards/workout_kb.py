@@ -315,11 +315,11 @@ def cardio_done_kb(session_id: int, ex: Exercise, can_remove: bool = False,
     kb = InlineKeyboardBuilder()
     sizes = []
 
-    kb.button(text="✏️ Изменить время",
+    kb.button(text="✏️ Изменить время кардио",
               callback_data=f"tr_custom:{session_id}:{ex.id}")
     sizes.append(1)
 
-    kb.button(text="📝 Заметка",
+    kb.button(text="📝 Заметка к кардио",
               callback_data=f"tr_note_ex:{session_id}:{ex.id}")
     sizes.append(1)
 
@@ -356,38 +356,37 @@ def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
     kb = InlineKeyboardBuilder()
     sizes = []
 
-    # 1. Группируем подходы (максимум по 2 в ряд)
+    # 1. Группируем подходы (по 2 в ряд)
     for s in sets:
         weight_text = format_weight(s.weight_kg)
         kb.button(
-            text=f"✏️ {s.set_number}. {s.reps}×{weight_text}",
+            text=f"✏️ Подход {s.set_number}: {s.reps}×{weight_text}",
             callback_data=f"tr_edit_set:{session_id}:{s.id}",
         )
 
-    # Вычисляем, сколько кнопок в каждом ряду для подходов
     num_sets = len(sets)
     while num_sets > 0:
         row_size = min(num_sets, 2)
         sizes.append(row_size)
         num_sets -= row_size
 
-    # 2. Основные действия
-    kb.button(text="➕ Добавить подход",
+    # 2. Основные действия (делаем текст длиннее, чтобы растянуть пузырь)
+    kb.button(text="➕ Добавить новый подход",
               callback_data=f"tr_add_set:{session_id}:{ex.id}")
     sizes.append(1)
 
-    kb.button(text="📝 Заметка",
+    kb.button(text="📝 Заметка к упражнению",
               callback_data=f"tr_note_ex:{session_id}:{ex.id}")
     sizes.append(1)
 
-    # 3. Навигация (в один ряд)
+    # 3. Навигация
     nav_count = 0
     if prev_ex_id:
-        kb.button(text="⬅️ Предыдущее",
+        kb.button(text="⬅️ Предыдущее упражнение",
                   callback_data=f"tr_ex:{session_id}:{prev_ex_id}")
         nav_count += 1
     if next_ex_id:
-        kb.button(text="Следующее ➡️",
+        kb.button(text="Следующее упражнение ➡️",
                   callback_data=f"tr_ex:{session_id}:{next_ex_id}")
         nav_count += 1
 
@@ -395,11 +394,10 @@ def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
         sizes.append(nav_count)
 
     # 4. Выход в список
-    kb.button(text="⬅️ К списку упражнений",
+    kb.button(text="⬅️ Вернуться к списку упражнений",
               callback_data=f"tr_list:{session_id}")
     sizes.append(1)
 
-    # Применяем настройки рядов
     kb.adjust(*sizes)
     return kb.as_markup()
 
