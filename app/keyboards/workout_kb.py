@@ -53,8 +53,12 @@ def workout_card_kb(wt: WorkoutType,
     return kb.as_markup()
 
 
-def exercises_list_kb(exercises: list[Exercise], wt_id: int) -> InlineKeyboardMarkup:
+def exercises_list_kb(exercises: list[Exercise],
+                      wt_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    sizes = []
+
+    # 1. Выводим упражнения (каждое в свой ряд)
     for ex in exercises:
         opt = " (опц.)" if ex.is_optional else ""
         if ex.kind == "strength":
@@ -63,10 +67,18 @@ def exercises_list_kb(exercises: list[Exercise], wt_id: int) -> InlineKeyboardMa
         else:
             text = f"🏃 {ex.name}{opt} · {format_duration(ex.duration_seconds)}"
         kb.button(text=text, callback_data=f"ex:{ex.id}")
+        sizes.append(1)
+
+    # 2. Служебные кнопки в один ряд
     kb.button(text="➕ Добавить упражнение", callback_data=f"ex_new:{wt_id}")
     kb.button(text="📦 Архив упражнений", callback_data=f"ex_arch_menu:{wt_id}")
+    sizes.append(2)  # Эти две ставим в один ряд
+
+    # 3. Кнопка возврата
     kb.button(text="⬅️ В меню тренировки", callback_data=f"wt:{wt_id}")
-    kb.adjust(1)
+    sizes.append(1)
+
+    kb.adjust(*sizes)
     return kb.as_markup()
 
 
@@ -318,7 +330,7 @@ def cardio_done_kb(session_id: int, ex: Exercise, can_remove: bool = False,
     kb = InlineKeyboardBuilder()
     sizes = []
 
-    # Группируем Изменить время и Заметку
+    # Изменить время и Заметка
     kb.button(text="✏️ Изменить время",
               callback_data=f"tr_custom:{session_id}:{ex.id}")
     kb.button(text="📝 Заметка",
@@ -330,26 +342,20 @@ def cardio_done_kb(session_id: int, ex: Exercise, can_remove: bool = False,
                   callback_data=f"tr_remove:{session_id}:{ex.id}")
         sizes.append(1)
 
-    # Навигация
-    nav_count = 0
-    if prev_ex_id:
-        kb.button(text="⬅️ Предыдущее",
-                  callback_data=f"tr_ex:{session_id}:{prev_ex_id}")
-        nav_count += 1
+    # Навигация: Список слева, Следующее справа
+    kb.button(text="⬅️ К списку упражнений",
+              callback_data=f"tr_list:{session_id}")
+    nav_count = 1
+
     if next_ex_id:
-        kb.button(text="Следующее ➡️",
+        kb.button(text="Следующее упражнение ➡️",
                   callback_data=f"tr_ex:{session_id}:{next_ex_id}")
         nav_count += 1
 
-    if nav_count > 0:
-        sizes.append(nav_count)
-
-    kb.button(text="⬅️ К списку упражнений",
-              callback_data=f"tr_list:{session_id}")
-    sizes.append(1)
-
+    sizes.append(nav_count)
     kb.adjust(*sizes)
     return kb.as_markup()
+
 
 def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
                         next_ex_id: int | None = None,
@@ -371,7 +377,7 @@ def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
         sizes.append(row_size)
         num_sets -= row_size
 
-    # 2. Основные действия (делаем текст длиннее, чтобы растянуть пузырь)
+    # 2. Основные действия
     kb.button(text="➕ Добавить новый подход",
               callback_data=f"tr_add_set:{session_id}:{ex.id}")
     sizes.append(1)
@@ -380,25 +386,17 @@ def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
               callback_data=f"tr_note_ex:{session_id}:{ex.id}")
     sizes.append(1)
 
-    # 3. Навигация
-    nav_count = 0
-    if prev_ex_id:
-        kb.button(text="⬅️ Предыдущее упражнение",
-                  callback_data=f"tr_ex:{session_id}:{prev_ex_id}")
-        nav_count += 1
+    # 3. Навигация: Список слева, Следующее справа
+    kb.button(text="⬅️ К списку упражнений",
+              callback_data=f"tr_list:{session_id}")
+    nav_count = 1
+
     if next_ex_id:
         kb.button(text="Следующее упражнение ➡️",
                   callback_data=f"tr_ex:{session_id}:{next_ex_id}")
         nav_count += 1
 
-    if nav_count > 0:
-        sizes.append(nav_count)
-
-    # 4. Выход в список
-    kb.button(text="⬅️ Вернуться к списку упражнений",
-              callback_data=f"tr_list:{session_id}")
-    sizes.append(1)
-
+    sizes.append(nav_count)
     kb.adjust(*sizes)
     return kb.as_markup()
 
