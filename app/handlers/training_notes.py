@@ -22,9 +22,9 @@ async def cb_note_ex_start(callback: CallbackQuery, session: AsyncSession,
 
     await state.clear()
     await state.set_state(TrainingFSM.entering_exercise_note)
-    await state.update_data(session_id=session_id, ex_id=ex_id)
+    await state.update_data(session_id=session_id, ex_id=ex_id,
+                            return_to="tr_ex_card")
 
-    # Проверяем, есть ли уже заметка
     existing = await session.execute(
         select(SessionExerciseNote).where(
             SessionExerciseNote.session_id == session_id,
@@ -32,11 +32,21 @@ async def cb_note_ex_start(callback: CallbackQuery, session: AsyncSession,
         )
     )
     note = existing.scalar_one_or_none()
-    current_text = f"\n\n<b>Текущая заметка:</b>\n<b><code>{note.note}</code></b>" if note else ""
+
+    if note:
+        text = (
+            f"✏️ <b>Редактирование заметки</b>\n\n"
+            f"Текущая заметка:\n<b><code>{note.note}</code></b>\n\n"
+            "Введи новый текст (нажми на старую заметку, чтобы скопировать):"
+        )
+    else:
+        text = (
+            "📝 <b>Новая заметка к упражнению</b>\n\n"
+            "Напиши текст заметки:"
+        )
 
     await callback.message.edit_text(
-        f"📝 <b>Заметка к упражнению</b>{current_text}\n\n"
-        "Напиши что-нибудь (например, «3-й подход не дожал»).",
+        text,
         reply_markup=note_edit_kb(session_id, ex_id, has_note=bool(note))
     )
     await callback.answer()
@@ -119,14 +129,23 @@ async def cb_session_note_start(callback: CallbackQuery, session: AsyncSession,
     await state.update_data(session_id=session_id, return_to="tr_list",
                             return_to_session=session_id)
 
-    current_text = ""
+    from app.keyboards.workout_kb import session_note_kb
+
     if ws.notes:
-        current_text = f"\n\n<b>Текущая заметка:</b>\n<code>{ws.notes}</code>"
+        text = (
+            f"✏️ <b>Редактирование общей заметки</b>\n\n"
+            f"Текущая заметка:\n<b><code>{ws.notes}</code></b>\n\n"
+            "Введи новый текст (нажми на старую заметку, чтобы скопировать):"
+        )
+    else:
+        text = (
+            "📝 <b>Новая общая заметка</b>\n\n"
+            "Напиши текст заметки (например, «плохо спал», «болит плечо»):"
+        )
 
     await callback.message.edit_text(
-        f"📝 <b>Общая заметка к тренировке</b>{current_text}\n\n"
-        "Напиши что-нибудь (например, «плохо спал», «болит плечо»):",
-        reply_markup=cancel_kb()
+        text,
+        reply_markup=session_note_kb(session_id, has_note=bool(ws.notes))
     )
     await callback.answer()
 
@@ -151,3 +170,21 @@ async def fsm_session_note_save(message: Message, state: FSMContext,
         "✅ Заметка сохранена.\n\n" + text_screen,
         reply_markup=kb
     )
+
+    @router.callback_query(F.data.startswith("tr_sess_note_del:"))
+    async def cb_session_note_delete(callback: CallbackQuery,
+                                     session: AsyncSession, state: FSMContext):
+        await state.clear()
+        session_id = int(callback.data.split(":")[1])
+
+        ws = await session.get(WorkoutSession, session_id)
+        if ws:
+            ws.notes = None
+            await session.commit()
+
+            from app.services.training_service import render_list
+            text, kb = await render_list(session, session_id, ws.user_id)
+            await callback.message.edit_text("🗑 Заметка удалена.\n\n" + text,
+                                             reply_markup=kb)
+
+        await callback.answer("Удалено")

@@ -611,3 +611,13 @@ def confirm_workout_hard_delete_kb(wt_id: int) -> InlineKeyboardMarkup:
     kb.button(text="❌ Нет, я передумал", callback_data=f"wt_del_no:{wt_id}")
     kb.adjust(1)
     return kb.as_markup()
+
+
+def session_note_kb(session_id: int, has_note: bool) -> InlineKeyboardMarkup:
+    """Клавиатура для редактирования общей заметки к тренировке."""
+    kb = InlineKeyboardBuilder()
+    if has_note:
+        kb.button(text="🗑 Удалить заметку", callback_data=f"tr_sess_note_del:{session_id}")
+    kb.button(text="❌ Отмена", callback_data="fsm_cancel")
+    kb.adjust(1)
+    return kb.as_markup()
