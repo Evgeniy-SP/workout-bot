@@ -231,20 +231,16 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
 
     if ex.kind == "strength":
         weight_text = format_weight(planned_weight)
-
-        # Логика текста кнопки (делаем текст одинаковым по длине)
-        # Выравниваем длину текста, чтобы пузырь не прыгал
         if not is_first_set:
             btn_text = f"✅ Как в предыдущем подходе: {planned_reps} × {weight_text}"
         elif use_history:
             btn_text = f"✅ Как на прошлой тренировке: {planned_reps} × {weight_text}"
         else:
             btn_text = f"✅ Как планировал сегодня: {planned_reps} × {weight_text}"
-        # ВАЖНО: кнопка создается ТОЛЬКО ЗДЕСЬ, один раз!
+
         kb.button(text=btn_text,
                   callback_data=f"tr_save_planned:{session_id}:{ex.id}")
         sizes.append(1)
-
         kb.button(text="✏️ Ввести фактически",
                   callback_data=f"tr_custom:{session_id}:{ex.id}")
         sizes.append(1)
@@ -256,9 +252,12 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                   callback_data=f"tr_save_planned:{session_id}:{ex.id}")
         sizes.append(1)
 
+        # В КАРДИО: ставим Ввести фактически и Заметку в один ряд
         kb.button(text="✏️ Ввести фактически",
                   callback_data=f"tr_custom:{session_id}:{ex.id}")
-        sizes.append(1)
+        kb.button(text="📝 Заметка",
+                  callback_data=f"tr_note_ex:{session_id}:{ex.id}")
+        sizes.append(2)
 
     if can_remove:
         kb.button(text="🗑 Убрать упражнение",
@@ -266,26 +265,30 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
         sizes.append(1)
 
     if ex.kind == "strength":
-        kb.button(text="⏱ 60 секунд", callback_data=f"tr_timer:60:{session_id}:ex:{ex.id}")
-        kb.button(text="⏱ 90 секунд", callback_data=f"tr_timer:90:{session_id}:ex:{ex.id}")
-        kb.button(text="⏱ Своё время", callback_data=f"tr_timer_custom:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱ 60 секунд",
+                  callback_data=f"tr_timer:60:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱ 90 секунд",
+                  callback_data=f"tr_timer:90:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱ Своё время",
+                  callback_data=f"tr_timer_custom:{session_id}:ex:{ex.id}")
         sizes.append(3)
 
         if has_timer:
-            # Добавили часики и заменили "Стоп" на "Отменить"
             kb.button(text="⏱️ Отменить",
                       callback_data=f"tr_timer_stop:{session_id}:ex:{ex.id}")
             kb.button(text="⏱️ Обновить",
                       callback_data=f"tr_refresh:{session_id}:{ex.id}")
             sizes.append(2)
         else:
-            kb.button(text="⏱️ Обновить время отдыха",
+            kb.button(text="🔄 Обновить время отдыха",
                       callback_data=f"tr_refresh:{session_id}:{ex.id}")
             sizes.append(1)
 
-    kb.button(text="📝 Заметка",
-              callback_data=f"tr_note_ex:{session_id}:{ex.id}")
-    sizes.append(1)
+        # Для силовых Заметка остается внизу
+        kb.button(text="📝 Заметка",
+                  callback_data=f"tr_note_ex:{session_id}:{ex.id}")
+        sizes.append(1)
+
     kb.button(text="⬅️ К списку упражнений",
               callback_data=f"tr_list:{session_id}")
     sizes.append(1)
@@ -315,20 +318,19 @@ def cardio_done_kb(session_id: int, ex: Exercise, can_remove: bool = False,
     kb = InlineKeyboardBuilder()
     sizes = []
 
-    kb.button(text="✏️ Изменить время кардио",
+    # Группируем Изменить время и Заметку
+    kb.button(text="✏️ Изменить время",
               callback_data=f"tr_custom:{session_id}:{ex.id}")
-    sizes.append(1)
-
-    kb.button(text="📝 Заметка к кардио",
+    kb.button(text="📝 Заметка",
               callback_data=f"tr_note_ex:{session_id}:{ex.id}")
-    sizes.append(1)
+    sizes.append(2)
 
     if can_remove:
         kb.button(text="🗑 Убрать упражнение",
                   callback_data=f"tr_remove:{session_id}:{ex.id}")
         sizes.append(1)
 
-    # Навигация (в один ряд)
+    # Навигация
     nav_count = 0
     if prev_ex_id:
         kb.button(text="⬅️ Предыдущее",
@@ -348,7 +350,6 @@ def cardio_done_kb(session_id: int, ex: Exercise, can_remove: bool = False,
 
     kb.adjust(*sizes)
     return kb.as_markup()
-
 
 def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
                         next_ex_id: int | None = None,
@@ -426,19 +427,21 @@ def archive_list_kb(grouped_exercises: list[tuple[Exercise, int]],
                     wt_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for ex, count in grouped_exercises:
-        kind_icon = "🏋️" if ex.kind == "strength" else "🏃"
         if ex.kind == "strength":
             weight = f" · {format_weight(ex.weight_kg)}" if ex.weight_kg else ""
-            text = f"📦 {kind_icon} {ex.name} ({ex.sets}×{ex.reps}{weight})"
+            # Делаем текст в скобках длиннее и подробнее
+            text = f"📦 {ex.name} ({ex.sets} подх. × {ex.reps} повт.{weight})"
         else:
-            text = f"📦 {kind_icon} {ex.name} (кардио)"
+            text = f"📦 {ex.name} (кардио)"
 
         if count > 1:
-            text += f" [x{count}]"
+            text += f" [записей: {count}]"
 
         kb.button(text=text, callback_data=f"ex_arch_view:{ex.id}")
 
-    kb.button(text="⬅️ В меню тренировки", callback_data=f"wt:{wt_id}")
+    # Удлиняем нижнюю кнопку для фиксации ширины
+    kb.button(text="⬅️ Вернуться в меню тренировки",
+              callback_data=f"wt:{wt_id}")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -554,6 +557,8 @@ def edit_set_kb(session_id: int, set_id: int, can_delete: bool = False) -> Inlin
 def optional_list_kb(session_id: int, exercises: list[Exercise],
                      sets_by_ex: dict) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    sizes = []
+
     for i, ex in enumerate(exercises, start=1):
         sets = sets_by_ex.get(ex.id, [])
         done_sets = sum(1 for s in sets if s.completed)
@@ -567,13 +572,23 @@ def optional_list_kb(session_id: int, exercises: list[Exercise],
             icon = "🟡"
 
         kind_icon = "🏋️" if ex.kind == "strength" else "🏃"
-        kb.button(text=f"{icon} {i}. {kind_icon} {ex.name}",
-                  callback_data=f"tr_ex:{session_id}:{ex.id}")
-        kb.adjust(1)
 
-    kb.button(text="⬅️ К основной тренировке",
-              callback_data=f"tr_list:{session_id}")
-    kb.adjust(1)
+        if ex.kind == "strength":
+            detail = f"({ex.sets}×{ex.reps})"
+        else:
+            from app.utils import format_duration
+            detail = f"({format_duration(ex.duration_seconds)})" if ex.duration_seconds else "(по факту)"
+
+        kb.button(text=f"{icon} {i}. {kind_icon} {ex.name} {detail}",
+                  callback_data=f"tr_ex:{session_id}:{ex.id}")
+        sizes.append(1)
+
+    # МАГИЯ: Ставим две кнопки в один ряд, чтобы растянуть пузырь как на скрине 2
+    kb.button(text="📝 Заметка к тренировке", callback_data=f"tr_sess_note:{session_id}")
+    kb.button(text="⬅️ К тренировке", callback_data=f"tr_list:{session_id}")
+    sizes.append(2)   # В один ряд
+
+    kb.adjust(*sizes)
     return kb.as_markup()
 
 

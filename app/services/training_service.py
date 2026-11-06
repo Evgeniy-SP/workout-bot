@@ -361,7 +361,7 @@ async def render_optional_list(session: AsyncSession, session_id: int,
         lines.append(f"{icon} {i}. {kind_icon} <b>{ex.name}</b> — {status}")
 
     text = "\n".join(lines)
-    kb = optional_list_kb(session_id, opt_exercises, sets_by_ex)
+    kb = optional_list_kb(session_id, opt_exercises, sets_by_ex) # <-- Вернули как было
     return text, kb
 
 

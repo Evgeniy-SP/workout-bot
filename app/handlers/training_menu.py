@@ -146,5 +146,10 @@ async def cb_optional_list(callback: CallbackQuery, session: AsyncSession,
 
     from app.services.training_service import render_optional_list
     text, kb = await render_optional_list(session, session_id, ws.user_id)
-    await callback.message.edit_text(text, reply_markup=kb)
-    await callback.answer()
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        pass  # Если ничего не изменилось - просто игнорируем ошибку
+
+    await callback.answer("Статусы обновлены")
