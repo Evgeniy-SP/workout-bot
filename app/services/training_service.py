@@ -58,7 +58,7 @@ async def render_approach_screen(
     from app.keyboards.workout_kb import cardio_done_kb, strength_summary_kb
     from app.render import render_strength_summary
     from app.utils import format_duration
-    import random  # Добавили random для поздравлений
+    import random
 
     ws = await session.get(WorkoutSession, session_id)
     ex = await session.get(Exercise, ex_id)
@@ -69,7 +69,7 @@ async def render_approach_screen(
     wt = await load_workout(session, ws.workout_type_id)
     sets_by_ex = await get_sets_grouped(session, session_id)
 
-    # ─── УМНЫЙ ПОИСК УПРАЖНЕНИЙ (оставляем как было) ───
+    # ─── УМНЫЙ ПОИСК УПРАЖНЕНИЙ ───
     next_ex_id = None
     prev_ex_id = None
     if wt:
@@ -111,7 +111,7 @@ async def render_approach_screen(
     sets = sets_by_ex.get(ex_id, [])
     completed = [s for s in sets if s.completed]
 
-    # --- ДОСТАЕМ ЗАМЕТКУ (ТЕКУЩУЮ) ЗАРАНЕЕ, ЧТОБЫ ОНА БЫЛА ДОСТУПНА ВЕЗДЕ ---
+    # Достаем заметку к упражнению (для текущей сессии)
     note_res = await session.execute(
         select(SessionExerciseNote).where(
             SessionExerciseNote.session_id == session_id,
@@ -119,7 +119,6 @@ async def render_approach_screen(
         )
     )
     note_obj = note_res.scalar_one_or_none()
-    # -------------------------------------------------------------------------
 
     text, kb = "", None
 
@@ -127,20 +126,26 @@ async def render_approach_screen(
     if ex.kind != "strength":
         can_remove = not completed
 
+        # Достаем историю ПРОШЛОЙ тренировки (исключая текущую!)
         last_set = await get_last_completed_set(session, ws.user_id, ex_id,
                                                 current_session_id=session_id)
         last_duration = last_set.duration_seconds if last_set else None
         last_note = None
+        last_date = None
+
         if last_set:
             last_note = await get_last_note_for_exercise(session, ex_id,
                                                          last_set.session_id)
+            last_ws = await session.get(WorkoutSession, last_set.session_id)
+            if last_ws and last_ws.started_at:
+                from app.utils import to_msk
+                last_date = to_msk(last_ws.started_at).strftime("%d.%m.%y")
 
         if completed:
             s = completed[0]
             duration = format_duration(
                 s.duration_seconds) if s.duration_seconds else "—"
 
-            # ВОЗВРАЩАЕМ ПОЗДРАВЛЕНИЯ
             phrases = [
                 "🎉 <b>Отлично! Кардио выполнено!</b>",
                 "💪 <b>Класс! Время записано!</b>",
@@ -167,7 +172,8 @@ async def render_approach_screen(
                 ex, 1, None, None, ex.duration_seconds,
                 last_note=last_note,
                 last_duration=last_duration,
-                current_note=note_obj.note if note_obj else None
+                current_note=note_obj.note if note_obj else None,
+                last_date=last_date
             )
             kb = approach_kb(
                 session_id, ex, 1, None, None,
@@ -178,29 +184,37 @@ async def render_approach_screen(
         return text, kb
 
     # ─── СИЛОВОЕ ───
+    plan = ex.sets or 0
 
-    # Сначала достаем историю и заметку из прошлой тренировки
+    # Достаем историю ПРОШЛОЙ тренировки (исключая текущую!)
     last_set = await get_last_completed_set(session, ws.user_id, ex_id,
                                             current_session_id=session_id)
     last_reps = last_set.reps if last_set else None
     last_weight = last_set.weight_kg if last_set else None
 
     last_note = None
+    last_date = None
     if last_set:
         last_note = await get_last_note_for_exercise(session, ex_id,
                                                      last_set.session_id)
+        last_ws = await session.get(WorkoutSession, last_set.session_id)
+        if last_ws and last_ws.started_at:
+            from app.utils import to_msk
+            last_date = to_msk(last_ws.started_at).strftime("%d.%m.%y")
 
-    plan = ex.sets or 0
     if plan > 0 and len(completed) >= plan:
-        # Передаем текущую и прошлую заметки в функцию итогов
+        # Все подходы выполнены — показываем экран итогов
         text = render_strength_summary(
             ex, completed,
             current_note=note_obj.note if note_obj else None,
-            last_note=last_note
+            last_note=last_note,
+            last_reps=last_reps,
+            last_weight=last_weight,
+            last_date=last_date
         )
-        kb = strength_summary_kb(session_id, ex, completed,
-                                 next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
+        kb = strength_summary_kb(session_id, ex, completed, next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
     else:
+        # Есть еще подходы — показываем экран подхода
         set_num = len(completed) + 1
 
         rest_time_str = None
@@ -231,6 +245,7 @@ async def render_approach_screen(
             last_reps if last_reps else ex.reps)
 
         can_remove = not sets
+
         text = render_approach(
             ex, set_num, ex.reps, ex.weight_kg, ex.duration_seconds,
             last_reps=last_reps,
@@ -238,8 +253,10 @@ async def render_approach_screen(
             last_note=last_note,
             rest_time_str=rest_time_str,
             timer_str=timer_str,
-            current_note=note_obj.note if note_obj else None
+            current_note=note_obj.note if note_obj else None,
+            last_date=last_date
         )
+
         kb = approach_kb(
             session_id, ex, set_num, action_reps, action_weight,
             ex.duration_seconds, can_remove=can_remove,
@@ -347,16 +364,14 @@ async def render_optional_list(session: AsyncSession, session_id: int,
 
         if done_sets == 0:
             icon = "⚪"
-            status = "не планировалось"
         elif done_sets >= plan_sets:
             icon = "✅"
-            status = "сделано"
         else:
             icon = "🟡"
-            status = f"частично ({done_sets}/{plan_sets})"
 
         kind_icon = "🏋️" if ex.kind == "strength" else "🏃"
-        lines.append(f"{icon} {i}. {kind_icon} <b>{ex.name}</b> — {status}")
+
+        lines.append(f"{icon} {i}. {kind_icon} <b>{ex.name}</b>")
 
     text = "\n".join(lines)
     kb = optional_list_kb(session_id, opt_exercises, sets_by_ex) # <-- Вернули как было

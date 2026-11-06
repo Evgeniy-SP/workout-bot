@@ -58,7 +58,6 @@ async def get_last_completed_set(
         )
     )
 
-    # Если передали ID текущей сессии, исключаем её из поиска
     if current_session_id:
         stmt = stmt.where(SessionSet.session_id != current_session_id)
 

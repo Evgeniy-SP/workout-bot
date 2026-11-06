@@ -129,7 +129,8 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
                     last_duration: int | None = None,
                     rest_time_str: str | None = None,
                     timer_str: str | None = None,
-                    current_note: str | None = None) -> str:
+                    current_note: str | None = None,
+                    last_date: str | None = None) -> str:
     from app.utils import format_duration
 
     if ex.kind == "strength":
@@ -137,7 +138,8 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
             display_reps = last_reps if last_reps else planned_reps
             display_weight = format_weight(
                 last_weight if last_weight else planned_weight)
-            history_text = f"🕰 <b>Прошлый раз: {display_reps} × {display_weight}</b>"
+            date_str = f" ({last_date})" if last_date else ""
+            history_text = f"🕰 <b>В прошлый раз{date_str}: {display_reps} × {display_weight}</b>"
         else:
             display_reps = planned_reps
             display_weight = format_weight(planned_weight)
@@ -152,54 +154,61 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
             f"</blockquote>"
         )
 
-        # --- 1. Собираем верхнюю часть (Название + Заметки) ---
-        text_parts = [f"🏋️ <b>{ex.name}</b>"]
+        notes_text = ""
         if current_note:
-            text_parts.append(f"📝 <i>Текущая заметка: {current_note}</i>")
+            notes_text += f"\n📝 <i>Текущая заметка: {current_note}</i>"
         if last_note:
-            text_parts.append(f"📝 <i>Прошлая заметка: {last_note}</i>")
+            notes_text += f"\n📝 <i>Прошлая заметка: {last_note}</i>"
 
-        # Склеиваем через двойной перенос (пустая строка)
-        text_above = "\n\n".join(text_parts)
+        if notes_text:
+            notes_text += "\n\u00A0\n"
+        else:
+            notes_text = "\n\n"
 
-        # --- 2. Собираем нижнюю часть (Таймеры) ---
-        extra_parts = []
+        extra = ""
         if timer_str:
-            extra_parts.append(f"⏱ <b>Таймер:</b> {timer_str}")
+            extra += f"\n⏱ <b>Таймер:</b> {timer_str}"
         if rest_time_str:
-            extra_parts.append(f"⏱ <i>Отдых: {rest_time_str}</i>")
-        extra = "\n".join(extra_parts)
+            extra += f"\n⏱ <i>Отдых: {rest_time_str}</i>"
 
-        # --- 3. Собираем всё вместе ---
-        final_text = f"{text_above}\n\n{blockquote}"
-        if extra:
-            final_text += f"\n\n{extra}"
-
-        return final_text
+        return (
+            f"🏋️ <b>{ex.name}</b>{notes_text}"
+            f"{blockquote}"
+            f"{extra}"
+        )
 
     # ─── КАРДИО ───
     if last_duration:
-        duration_header = f"🕰 <b>Прошлый раз: {format_duration(last_duration)}</b>"
+        date_str = f" ({last_date})" if last_date else ""
+        duration_header = f"🕰 <b>В прошлый раз{date_str}: {format_duration(last_duration)}</b>"
     else:
         duration_header = f"📋 <b>План: {format_duration(planned_duration)}</b>"
 
     blockquote = f"<blockquote>{duration_header}</blockquote>"
 
-    # Собираем верхнюю часть (Название + Заметки)
-    text_parts = [f"🏃 <b>{ex.name}</b>"]
+    notes_text = ""
     if current_note:
-        text_parts.append(f"📝 <i>Текущая заметка: {current_note}</i>")
+        notes_text += f"\n📝 <i>Текущая заметка: {current_note}</i>"
     if last_note:
-        text_parts.append(f"📝 <i>Прошлая заметка: {last_note}</i>")
+        notes_text += f"\n📝 <i>Прошлая заметка: {last_note}</i>"
 
-    text_above = "\n\n".join(text_parts)
+    if notes_text:
+        notes_text += "\n\u00A0\n"
+    else:
+        notes_text = "\n\n"
 
-    return f"{text_above}\n\n{blockquote}"
+    return (
+        f"🏃 <b>{ex.name}</b>{notes_text}"
+        f"{blockquote}"
+    )
 
 
 def render_strength_summary(ex: Exercise, sets: list,
                             current_note: str | None = None,
-                            last_note: str | None = None) -> str:
+                            last_note: str | None = None,
+                            last_reps: int | None = None,
+                            last_weight: str | None = None,
+                            last_date: str | None = None) -> str:
     if not sets:
         return f"🏋️ <b>{ex.name}</b>\n\nПока нет подходов."
 
@@ -224,27 +233,29 @@ def render_strength_summary(ex: Exercise, sets: list,
         total_reps += reps
         total_volume += reps * weight
 
-    # 1. Заголовок
     lines = [f"🏋️ <b>{ex.name}</b>\n"]
 
-    # 2. Заметки (если есть)
     if current_note:
         lines.append(f"📝 <i>Текущая заметка: {current_note}</i>")
     if last_note:
         lines.append(f"📝 <i>Прошлая заметка: {last_note}</i>")
     if current_note or last_note:
-        lines.append("")  # Пустая строка для отступа
+        lines.append("")
 
     lines.append(f"{congrats}\n")
     lines.append("📋 <b>Выполненные подходы:</b>")
 
-    # 3. Подходы
     for s in sets:
         reps = s.reps or 0
         weight_text = format_weight(s.weight_kg)
         lines.append(f"✅ <b>{s.set_number}.</b> {reps} × <b>{weight_text}</b>")
 
-    # 4. Статистика
+    # --- ДОБАВЛЯЕМ СТРОКУ С ПРОШЛОЙ ТРЕНИРОВКОЙ ---
+    if last_reps or last_weight:
+        date_str = f" ({last_date})" if last_date else ""
+        lines.append(f"\n🕰 <b>В прошлый раз{date_str}: {last_reps} × {format_weight(last_weight)}</b>")
+
+    # --- ЗЕЛЕНЫЙ БЛОК СТАТИСТИКИ ---
     stats = f"<blockquote>📈 Всего повторов: <b>{total_reps}</b>"
     if total_volume > 0:
         stats += f"\n⚖️ Тоннаж: <b>{total_volume:g} кг</b>"

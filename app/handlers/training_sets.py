@@ -205,6 +205,12 @@ async def _save_custom_set(message: Message, state: FSMContext,
                            data: dict, reps: int | None, weight: str | None,
                            duration: int | None = None):
     """Создаёт новый или обновляет существующий подход."""
+    from datetime import datetime, timezone
+    from app.db.models import SessionSet, WorkoutSession, Exercise
+    from app.db.queries import get_sets_grouped
+    from app.services.training_service import render_approach_screen, \
+        render_list
+
     session_id = data["session_id"]
     ex_id = data["ex_id"]
     editing_set_id = data.get("editing_set_id")
@@ -232,18 +238,24 @@ async def _save_custom_set(message: Message, state: FSMContext,
             if old_reps != reps:
                 parts.append(f"повторы: <b>{old_reps} → {reps}</b>")
             if old_weight != weight:
-                parts.append(f"вес: <b>{format_weight(old_weight)} → {format_weight(weight)}</b>")
+                from app.utils import format_weight
+                parts.append(
+                    f"вес: <b>{format_weight(old_weight)} → {format_weight(weight)}</b>")
         else:
             if old_duration != duration:
-                parts.append(f"время: <b>{format_duration(old_duration)} → {format_duration(duration)}</b>")
+                from app.utils import format_duration
+                parts.append(
+                    f"время: <b>{format_duration(old_duration)} → {format_duration(duration)}</b>")
 
-        # ДОБАВИЛИ НОМЕР ПОДХОДА В ЗАГОЛОВОК
         if parts:
-            change_text = f"✅ <b>Подход {target.set_number} обновлен.</b>\n" + "\n".join(parts)
+            change_text = f"✅ <b>Подход {target.set_number} обновлен.</b>\n" + "\n".join(
+                parts)
         else:
             change_text = f"✅ <b>Подход {target.set_number}: сохранено (без изменений).</b>"
+
         await state.clear()
 
+        # Используем единую функцию для отрисовки
         result_screen = await render_approach_screen(session, session_id,
                                                      ex_id)
         if result_screen:
@@ -257,6 +269,7 @@ async def _save_custom_set(message: Message, state: FSMContext,
 
     # Создание нового подхода
     sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+    from app.services.training_service import next_set_num
     set_num = next_set_num(sets)
 
     new_set = SessionSet(
@@ -291,19 +304,15 @@ async def _save_custom_set(message: Message, state: FSMContext,
             await message.answer(text, reply_markup=kb)
         return
 
-    ws = await session.get(WorkoutSession, session_id)
-    last_set = await get_last_completed_set(session, ws.user_id, ex_id)
-    planned_weight = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
-    planned_reps = last_set.reps if last_set and last_set.reps else ex.reps
-    next_num = done + 1
-
-    text = render_approach(
-        ex, next_num, planned_reps, planned_weight, ex.duration_seconds,
-        last_weight=last_set.weight_kg if last_set else None,
-    )
-    kb = approach_kb(session_id, ex, next_num, planned_reps, planned_weight,
-                     ex.duration_seconds)
-    await message.answer(text, reply_markup=kb)
+    # ВАЖНО: Вместо ручного кода, вызываем нашу единую умную функцию!
+    result_screen = await render_approach_screen(session, session_id, ex_id)
+    if result_screen:
+        text, kb = result_screen
+        await message.answer(text, reply_markup=kb)
+    else:
+        ws = await session.get(WorkoutSession, session_id)
+        text, kb = await render_list(session, session_id, ws.user_id)
+        await message.answer(text, reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("tr_edit_set:"))
