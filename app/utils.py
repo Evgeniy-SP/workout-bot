@@ -61,4 +61,3 @@ def format_weight(weight: str | None) -> str:
         return f"{weight} кг"
     except ValueError:
         return weight  # если текст (например, "Своё тело"), возвращаем как есть
-

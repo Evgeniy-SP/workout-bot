@@ -106,7 +106,7 @@ async def cb_exercises_list(callback: CallbackQuery, session: AsyncSession,
 
     await callback.message.edit_text(
         f"📋 Упражнения — <b>{wt.name}</b>\n\n"
-        "<i>💡 Нажми на упражнение, чтобы отредактировать или убрать</i>",
+        "💡 <i>Нажми на упражнение для настройки.</i>",
         reply_markup=exercises_list_kb(wt.exercises, wt.id),
     )
     await callback.answer()
@@ -127,13 +127,15 @@ async def _render_card(session: AsyncSession, ex: Exercise, msg):
     if ex.id in ids:
         text += f"\n\n📌 <i>Позиция: {ids.index(ex.id) + 1} из {len(ids)}</i>"
 
+    # ДОБАВЛЯЕМ ЯКОРЬ ДЛЯ ШИРИНЫ
+    text += "\n\n💡 <i>Нажми на кнопку, чтобы изменить параметры.</i>"
+
     await msg.edit_text(text, reply_markup=exercise_card_kb(ex))
 
 
 # Обработчик кнопки (декоратор ЗДЕСЬ)
 @router.callback_query(F.data.startswith("ex:"))
-async def cb_exercise_card(callback: CallbackQuery, session: AsyncSession,
-                           state: FSMContext):
+async def cb_exercise_card(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
     await state.clear()
     ex_id = int(callback.data.split(":")[1])
     ex = await session.get(Exercise, ex_id)

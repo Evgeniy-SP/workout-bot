@@ -161,13 +161,11 @@ async def render_approach_screen(
                 note_text = f"\n\n📝 <i>Заметка из предыдущей тренировки: {last_note}</i>"
 
             text = (
-                    f"<b>{ex.name}</b>\n\n"
-                    f"{congrats}\n\n"
-                    f"✅ Выполнено: <b>{duration}</b>\n\n"
-                    "Можно изменить время, если ошиблись." + note_text
+                f"<b>{ex.name}</b>\n\n"
+                f"✅ Выполнено: <b>{duration}</b>\n\n"
+                "💡 <i>Нажми на кнопку ниже, чтобы изменить время или добавить заметку.</i>" + note_text
             )
-            kb = cardio_done_kb(session_id, ex, can_remove=can_remove,
-                                next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
+            kb = cardio_done_kb(session_id, ex, can_remove=can_remove, next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
         else:
             text = render_approach(
                 ex, 1, None, None, ex.duration_seconds,

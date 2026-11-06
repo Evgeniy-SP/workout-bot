@@ -45,11 +45,10 @@ def workout_card_kb(wt: WorkoutType,
     kb.button(text=rot_text, callback_data=f"wt_toggle_rot:{wt.id}")
     kb.button(text="✏️ Переименовать", callback_data=f"wt_ren:{wt.id}")
 
-    # Объединяем удаление и возврат в один ряд, чтобы растянуть пузырь
+    # Возвращаем широкий нижний ряд
     kb.button(text="🗑 Удалить тренировку", callback_data=f"wt_del:{wt.id}")
     kb.button(text="⬅️ К списку тренировок", callback_data="wt_list")
 
-    # Настраиваем сетку: два ряда по одной кнопке, и два ряда по две кнопки
     kb.adjust(1, 1, 2, 2)
     return kb.as_markup()
 
@@ -88,11 +87,17 @@ def exercise_card_kb(ex: Exercise) -> InlineKeyboardMarkup:
 
     opt_text = "⚪ Опциональное: да" if ex.is_optional else "📌 Обязательное"
     kb.button(text=opt_text, callback_data=f"ex_toggle_opt:{ex.id}")
+
+    # Стрелки в один ряд
     kb.button(text="⬆️ Вверх", callback_data=f"ex_move_up:{ex.id}")
     kb.button(text="⬇️ Вниз", callback_data=f"ex_move_down:{ex.id}")
+
+    # Удаление и Возврат в один ряд
     kb.button(text="🗑 Убрать упражнение", callback_data=f"ex_del:{ex.id}")
     kb.button(text="⬅️ К списку", callback_data=f"wt_ex:{ex.workout_type_id}")
-    kb.adjust(1)
+
+    # Настраиваем сетку: по 1, потом по 2
+    kb.adjust(1, 1, 1, 1, 1, 2, 2)
     return kb.as_markup()
 
 
@@ -227,14 +232,14 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
     if ex.kind == "strength":
         weight_text = format_weight(planned_weight)
 
-        # Логика текста кнопки
+        # Логика текста кнопки (делаем текст одинаковым по длине)
+        # Выравниваем длину текста, чтобы пузырь не прыгал
         if not is_first_set:
-            btn_text = f"✅ Предыдущий подход: {planned_reps} × {weight_text}"
+            btn_text = f"✅ Как в предыдущем подходе: {planned_reps} × {weight_text}"
         elif use_history:
             btn_text = f"✅ Как на прошлой тренировке: {planned_reps} × {weight_text}"
         else:
-            btn_text = f"✅ Как планировал: {planned_reps} × {weight_text}"
-
+            btn_text = f"✅ Как планировал сегодня: {planned_reps} × {weight_text}"
         # ВАЖНО: кнопка создается ТОЛЬКО ЗДЕСЬ, один раз!
         kb.button(text=btn_text,
                   callback_data=f"tr_save_planned:{session_id}:{ex.id}")
@@ -261,12 +266,9 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
         sizes.append(1)
 
     if ex.kind == "strength":
-        kb.button(text="⏱ 60с",
-                  callback_data=f"tr_timer:60:{session_id}:ex:{ex.id}")
-        kb.button(text="⏱ 90с",
-                  callback_data=f"tr_timer:90:{session_id}:ex:{ex.id}")
-        kb.button(text="⏱ Своё",
-                  callback_data=f"tr_timer_custom:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱ 60 секунд", callback_data=f"tr_timer:60:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱ 90 секунд", callback_data=f"tr_timer:90:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱ Своё время", callback_data=f"tr_timer_custom:{session_id}:ex:{ex.id}")
         sizes.append(3)
 
         if has_timer:
@@ -443,16 +445,24 @@ def archive_list_kb(grouped_exercises: list[tuple[Exercise, int]],
     return kb.as_markup()
 
 
-def archive_card_kb(ex: Exercise, has_conflict: bool = False) -> InlineKeyboardMarkup:
+def archive_card_kb(ex: Exercise,
+                    has_conflict: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if has_conflict:
-        kb.button(text="🔗 Объединить и восстановить", callback_data=f"ex_restore_merge:{ex.id}")
+        kb.button(text="🔗 Объединить и восстановить",
+                  callback_data=f"ex_restore_merge:{ex.id}")
     else:
-        kb.button(text="🔄 Восстановить", callback_data=f"ex_restore_merge:{ex.id}")
+        kb.button(text="🔄 Восстановить в шаблон",
+                  callback_data=f"ex_restore_merge:{ex.id}")
+
     kb.button(text="🔥 Удалить навсегда",
-                  callback_data=f"ex_arch_del_ask:{ex.id}")
-    kb.button(text="⬅️ К архиву", callback_data=f"ex_arch_menu:{ex.workout_type_id}")
-    kb.adjust(1)
+              callback_data=f"ex_arch_del_ask:{ex.id}")
+
+    # Ставим возврат в один ряд с удалением
+    kb.button(text="⬅️ К архиву",
+              callback_data=f"ex_arch_menu:{ex.workout_type_id}")
+
+    kb.adjust(1, 1, 2)
     return kb.as_markup()
 
 

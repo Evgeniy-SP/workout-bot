@@ -218,4 +218,5 @@ def render_strength_summary(ex: Exercise, sets: list) -> str:
 
     lines.append(f"\n{stats}")
 
+    lines.append("\n💡 <i>Нажми на подход, чтобы изменить его, или добавь новый.</i>")
     return "\n".join(lines)
