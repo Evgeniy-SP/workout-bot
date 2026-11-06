@@ -245,7 +245,8 @@ async def render_approach_screen(
             ex.duration_seconds, can_remove=can_remove,
             use_history=bool(last_set),
             is_first_set=(len(completed) == 0),
-            has_timer=(timer_str is not None)
+            has_timer=(timer_str is not None),
+            completed_sets=completed
         )
 
     return text, kb

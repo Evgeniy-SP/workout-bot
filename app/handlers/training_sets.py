@@ -163,7 +163,7 @@ async def fsm_enter_reps(message: Message, state: FSMContext,
     await message.answer(
         f"Сколько весил снаряд?\n"
         f"<i>{prefix}: {suggestion}</i>\n\n"
-        "Введи число или текст (например «Своё тело»). Или отправь «-», чтобы без веса:",
+        "Введи число или текст (например «Своё тело»):",
         reply_markup=cancel_kb(),
     )
 
@@ -232,15 +232,16 @@ async def _save_custom_set(message: Message, state: FSMContext,
             if old_reps != reps:
                 parts.append(f"повторы: <b>{old_reps} → {reps}</b>")
             if old_weight != weight:
-                parts.append(
-                    f"вес: <b>{format_weight(old_weight)} → {format_weight(weight)}</b>")
+                parts.append(f"вес: <b>{format_weight(old_weight)} → {format_weight(weight)}</b>")
         else:
             if old_duration != duration:
-                parts.append(
-                    f"время: <b>{format_duration(old_duration)} → {format_duration(duration)}</b>")
+                parts.append(f"время: <b>{format_duration(old_duration)} → {format_duration(duration)}</b>")
 
-        change_text = "✅ Обновлено.\n" + "\n".join(
-            parts) if parts else "✅ Сохранено (без изменений)."
+        # ДОБАВИЛИ НОМЕР ПОДХОДА В ЗАГОЛОВОК
+        if parts:
+            change_text = f"✅ <b>Подход {target.set_number} обновлен.</b>\n" + "\n".join(parts)
+        else:
+            change_text = f"✅ <b>Подход {target.set_number}: сохранено (без изменений).</b>"
         await state.clear()
 
         result_screen = await render_approach_screen(session, session_id,
@@ -403,3 +404,50 @@ async def cb_delete_set(callback: CallbackQuery, session: AsyncSession,
                                          reply_markup=kb)
 
     await callback.answer("Подход удален")
+
+
+@router.callback_query(F.data.startswith("tr_edit_menu:"))
+async def cb_edit_menu(callback: CallbackQuery, session: AsyncSession):
+    """Меню выбора подхода для редактирования."""
+    _, sess_str, ex_str = callback.data.split(":")
+    session_id = int(sess_str)
+    ex_id = int(ex_str)
+
+    sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+    completed = [s for s in sets if s.completed]
+
+    if not completed:
+        return await callback.answer("Нет выполненных подходов",
+                                     show_alert=True)
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+    kb = InlineKeyboardBuilder()
+    sizes = []
+
+    # Выводим все выполненные подходы в виде кнопок
+    for s in completed:
+        weight_text = format_weight(s.weight_kg)
+        kb.button(
+            text=f"✏️ Подход {s.set_number}: {s.reps}×{weight_text}",
+            callback_data=f"tr_edit_set:{session_id}:{s.id}"
+        )
+
+    # Логика группировки по 2 в ряд
+    num_sets = len(completed)
+    while num_sets > 0:
+        row_size = min(num_sets, 2)
+        sizes.append(row_size)
+        num_sets -= row_size
+
+    # Кнопка возврата (всегда одна в ряду)
+    kb.button(text="⬅️ Назад к упражнению",
+              callback_data=f"tr_ex:{session_id}:{ex_id}")
+    sizes.append(1)
+
+    kb.adjust(*sizes)
+    await callback.message.edit_text(
+        "📝 <b>Выбери подход для редактирования:</b>",
+        reply_markup=kb.as_markup()
+    )
+    await callback.answer()

@@ -237,7 +237,9 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                 can_remove: bool = False,
                 use_history: bool = False,
                 is_first_set: bool = True,
-                has_timer: bool = False) -> InlineKeyboardMarkup:
+                has_timer: bool = False,
+                completed_sets: list = None
+                ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     sizes = []
 
@@ -301,9 +303,16 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                   callback_data=f"tr_note_ex:{session_id}:{ex.id}")
         sizes.append(1)
 
-    kb.button(text="⬅️ К списку упражнений",
-              callback_data=f"tr_list:{session_id}")
-    sizes.append(1)
+    nav_count = 0
+    if completed_sets:
+        # Добавляем кнопку вызова меню редактирования
+        kb.button(text="📝 Изменить подход",
+                  callback_data=f"tr_edit_menu:{session_id}:{ex.id}")
+        nav_count += 1
+
+    kb.button(text="⬅️ К списку", callback_data=f"tr_list:{session_id}")
+    nav_count += 1
+    sizes.append(nav_count)
 
     kb.adjust(*sizes)
     return kb.as_markup()

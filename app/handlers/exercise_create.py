@@ -186,8 +186,7 @@ async def add_reps(message: Message, state: FSMContext):
     await state.set_state(WorkoutCreate.adding_exercise_weight)
     await message.answer(
         "Введи вес (например <code>12.5</code>) или текст "
-        "(например <code>Своё тело</code>, <code>Резинка</code>).\n"
-        "Или отправь <code>-</code>, чтобы оставить без веса:",
+        "(например <code>Своё тело</code>, <code>Резинка</code>):",
         reply_markup=cancel_kb(),
     )
 
