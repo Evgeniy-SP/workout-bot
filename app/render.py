@@ -105,16 +105,18 @@ def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
 
     lines.append("")
 
-    # Блок таймеров/отдыха (единый стиль)
+    # Блок таймеров/отдыха
     if timer_str:
         lines.append(f"⏱ <b>Таймер:</b> {timer_str}")
     if rest_time_str:
         if last_exercise_name:
-            lines.append(f"⏱ <b>Отдых после «{last_exercise_name}»:</b> {rest_time_str}")
+            lines.append(
+                f"⏱ <b>Отдых после «{last_exercise_name}»:</b> {rest_time_str}")
         else:
             lines.append(f"⏱ <b>Отдых:</b> {rest_time_str}")
 
-    # 3. Красивый блок с прогрессом (в цитате)
+    # Добавляем пустую строку для отступа перед зеленым блоком
+    lines.append("")
     lines.append(
         f"<blockquote>📊 Выполнено: <b>{done_ex} / {total_ex}</b> упражнений</blockquote>")
 
@@ -167,9 +169,13 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
 
         extra = ""
         if timer_str:
-            extra += f"\n⏱ <b>Таймер:</b> {timer_str}"
+            extra += f"⏱ <b>Таймер:</b> {timer_str}\n"
         if rest_time_str:
-            extra += f"\n⏱ <i>Отдых: {rest_time_str}</i>"
+            extra += f"⏱ <i>Отдых: {rest_time_str}</i>"
+
+        # Если есть таймер или отдых, добавляем двойной перенос перед блоком
+        if extra:
+            extra = "\n\n" + extra.strip()
 
         return (
             f"🏋️ <b>{ex.name}</b>{notes_text}"

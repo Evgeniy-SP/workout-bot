@@ -111,7 +111,7 @@ async def render_approach_screen(
     sets = sets_by_ex.get(ex_id, [])
     completed = [s for s in sets if s.completed]
 
-    # Достаем заметку к упражнению (для текущей сессии)
+    # Достаем заметку к упражнению
     note_res = await session.execute(
         select(SessionExerciseNote).where(
             SessionExerciseNote.session_id == session_id,
@@ -126,7 +126,6 @@ async def render_approach_screen(
     if ex.kind != "strength":
         can_remove = not completed
 
-        # Достаем историю ПРОШЛОЙ тренировки (исключая текущую!)
         last_set = await get_last_completed_set(session, ws.user_id, ex_id,
                                                 current_session_id=session_id)
         last_duration = last_set.duration_seconds if last_set else None
@@ -186,7 +185,6 @@ async def render_approach_screen(
     # ─── СИЛОВОЕ ───
     plan = ex.sets or 0
 
-    # Достаем историю ПРОШЛОЙ тренировки (исключая текущую!)
     last_set = await get_last_completed_set(session, ws.user_id, ex_id,
                                             current_session_id=session_id)
     last_reps = last_set.reps if last_set else None
@@ -203,7 +201,7 @@ async def render_approach_screen(
             last_date = to_msk(last_ws.started_at).strftime("%d.%m.%y")
 
     if plan > 0 and len(completed) >= plan:
-        # Все подходы выполнены — показываем экран итогов
+        # Все подходы выполнены — экран итогов
         text = render_strength_summary(
             ex, completed,
             current_note=note_obj.note if note_obj else None,
@@ -212,9 +210,10 @@ async def render_approach_screen(
             last_weight=last_weight,
             last_date=last_date
         )
-        kb = strength_summary_kb(session_id, ex, completed, next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
+        kb = strength_summary_kb(session_id, ex, completed,
+                                 next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
     else:
-        # Есть еще подходы — показываем экран подхода
+        # Есть еще подходы — экран подхода
         set_num = len(completed) + 1
 
         rest_time_str = None
@@ -231,12 +230,17 @@ async def render_approach_screen(
                     sec = total_sec % 60
                     rest_time_str = f"{m} мин {sec} сек" if m > 0 else f"{sec} сек"
 
-        if session_id in ACTIVE_TIMERS:
-            remaining = int((ACTIVE_TIMERS[session_id][
+        # =======================================================
+        # ВОТ ЗДЕСЬ МЕНЯЕМ КЛЮЧ ДЛЯ ТАЙМЕРА СИЛОВОГО УПРАЖНЕНИЯ
+        # =======================================================
+        timer_key = f"{session_id}_ex_{ex_id}"
+        if timer_key in ACTIVE_TIMERS:
+            remaining = int((ACTIVE_TIMERS[timer_key][
                                  "end_time"] - datetime.now(
                 timezone.utc)).total_seconds())
             if remaining > 0:
                 timer_str = f"осталось {remaining} сек"
+        # =======================================================
 
         current_last_set = completed[-1] if completed else None
         action_weight = current_last_set.weight_kg if current_last_set else (
@@ -302,9 +306,9 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
                     break
 
     timer_str = None
-    if session_id in ACTIVE_TIMERS:
-        remaining = int((ACTIVE_TIMERS[session_id]["end_time"] - datetime.now(
-            timezone.utc)).total_seconds())
+    timer_key = f"{session_id}_list"
+    if timer_key in ACTIVE_TIMERS:
+        remaining = int((ACTIVE_TIMERS[timer_key]["end_time"] - datetime.now(timezone.utc)).total_seconds())
         if remaining > 0:
             timer_str = f"осталось {remaining} сек"
 

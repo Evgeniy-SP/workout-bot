@@ -303,7 +303,8 @@ async def edit_weight_save(message: Message, state: FSMContext,
 # ═══════════════════════════════════════════════════════════
 
 @router.callback_query(F.data.startswith("ex_edit_duration:"))
-async def edit_duration_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+async def edit_duration_start(callback: CallbackQuery, state: FSMContext,
+                              session: AsyncSession):
     ex_id = int(callback.data.split(":")[1])
     ex = await session.get(Exercise, ex_id)
     if not ex:
@@ -311,13 +312,15 @@ async def edit_duration_start(callback: CallbackQuery, state: FSMContext, sessio
 
     from app.utils import format_duration
     current = format_duration(ex.duration_seconds)
-    await state.update_data(ex_id=ex_id, return_to="ex_card")
+
+    await state.update_data(ex_id=ex_id, return_to="ex_card", temp_num="")
     await state.set_state(WorkoutEdit.editing_exercise_duration)
+
     await callback.message.edit_text(
         f"⏱ Текущая длительность:\n<b><code>{current}</code></b>\n\n"
-        "Введи новую длительность в минутах (можно 1.5):\n"
-        "<i>(Нажми на текущее время, чтобы скопировать)</i>",
-        reply_markup=cancel_kb(),
+        "Введи новую длительность в минутах (можно 1.5):",
+        reply_markup=weight_keypad_kb(prefix="te_t_num")
+        # <--- НОВАЯ КЛАВИАТУРА
     )
     await callback.answer()
 
@@ -488,3 +491,52 @@ async def cb_te_weight(callback: CallbackQuery, state: FSMContext,
         reply_markup=weight_keypad_kb(prefix="te_w_num")
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("te_t_num:"))
+async def cb_te_time(callback: CallbackQuery, state: FSMContext,
+                     session: AsyncSession):
+    action = callback.data.split(":")[1]
+    data = await state.get_data()
+
+    if "ex_id" not in data:
+        return await callback.answer("Устаревшая кнопка", show_alert=True)
+
+    current_val = data.get("temp_num", "")
+    ex_id = data.get("ex_id")
+    ex = await session.get(Exercise, ex_id)
+
+    if action == "add":
+        digit = callback.data.split(":")[2]
+        if len(current_val) < 5:
+            current_val += digit
+            await state.update_data(temp_num=current_val)
+    elif action == "del":
+        current_val = current_val[:-1]
+        await state.update_data(temp_num=current_val)
+    elif action == "done":
+        if not current_val:
+            return await callback.answer("Введи время!", show_alert=True)
+
+        from app.utils import parse_minutes_to_seconds
+        seconds = parse_minutes_to_seconds(current_val)
+        if seconds is None:
+            return await callback.answer("Ошибка", show_alert=True)
+
+        ex.duration_seconds = seconds
+        await session.commit()
+        await state.clear()
+
+        await callback.message.edit_text(
+            "✅ Сохранено.\n\n" + render_exercise_card(ex),
+            reply_markup=exercise_card_kb(ex)
+        )
+        await callback.answer()
+        return
+
+    await callback.message.edit_text(
+        f"Ввод времени (мин): <code>{current_val or '0'}</code>",
+        reply_markup=weight_keypad_kb(prefix="te_t_num")
+    )
+    await callback.answer()
+

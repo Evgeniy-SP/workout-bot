@@ -143,7 +143,7 @@ async def cb_custom_start(callback: CallbackQuery, session: AsyncSession,
                 f"<b>{ex.name}</b>\n\n"
                 f"Сейчас: <b>{current_text}</b>\n\n"
                 "Введи новое время в минутах (можно 1.5 = 1 мин 30 сек):",
-                reply_markup=cancel_kb(),
+                reply_markup=weight_keypad_kb(prefix="t_num"),
             )
         else:
             plan_text = format_duration(
@@ -152,7 +152,7 @@ async def cb_custom_start(callback: CallbackQuery, session: AsyncSession,
                 f"<b>{ex.name}</b>\n\n"
                 f"План: <b>{plan_text}</b>\n\n"
                 "Сколько минут заняло? Введи число (можно 1.5 = 1 мин 30 сек):",
-                reply_markup=cancel_kb(),
+                reply_markup=weight_keypad_kb(prefix="t_num"),
             )
 
     await callback.answer()
@@ -669,5 +669,95 @@ async def cb_back_from_text(callback: CallbackQuery, state: FSMContext, session:
         f"Ввод веса: <code>{current_val or '0'}</code>\n\n"
         f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>",
         reply_markup=weight_keypad_kb()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("t_num:"))
+async def cb_time_input(callback: CallbackQuery, state: FSMContext,
+                        session: AsyncSession):
+    """Ввод времени кардио через цифровую клавиатуру."""
+    action = callback.data.split(":")[1]
+    data = await state.get_data()
+
+    if "session_id" not in data:
+        return await callback.answer(
+            "Устаревшая кнопка. Открой упражнение заново.", show_alert=True)
+
+    current_val = data.get("temp_num",
+                           "")  # используем тот же буфер, что и для повторов
+
+    if action == "add":
+        digit = callback.data.split(":")[2]
+        if len(current_val) < 5:
+            current_val += digit
+            await state.update_data(temp_num=current_val)
+    elif action == "del":
+        current_val = current_val[:-1]
+        await state.update_data(temp_num=current_val)
+    elif action == "text":
+        await callback.message.edit_text(
+            "📝 Напиши время текстом (например «30» или «1.5»):",
+            reply_markup=cancel_kb()
+        )
+        await callback.answer()
+        return
+    elif action == "done":
+        if not current_val:
+            return await callback.answer("Введи время!", show_alert=True)
+
+        from app.utils import parse_minutes_to_seconds
+        seconds = parse_minutes_to_seconds(current_val)
+        if seconds is None:
+            return await callback.answer("Некорректное время", show_alert=True)
+
+        session_id = data["session_id"]
+        ex_id = data["ex_id"]
+        editing_set_id = data.get("editing_set_id")
+
+        from datetime import datetime, timezone
+        from app.db.models import SessionSet
+        from app.db.queries import get_sets_grouped
+        from app.services.training_service import next_set_num, \
+            render_approach_screen, render_list
+
+        if editing_set_id:
+            target = await session.get(SessionSet, editing_set_id)
+            target.duration_seconds = seconds
+            target.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+        else:
+            sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+            new_set = SessionSet(
+                session_id=session_id, exercise_id=ex_id,
+                set_number=next_set_num(sets),
+                duration_seconds=seconds, completed=True,
+                completed_at=datetime.now(timezone.utc)
+            )
+            session.add(new_set)
+            await session.commit()
+
+        await state.clear()
+
+        result = await render_approach_screen(session, session_id, ex_id)
+        if result:
+            text, kb = result
+            await callback.message.edit_text(text, reply_markup=kb)
+        else:
+            ws = await session.get(WorkoutSession, session_id)
+            text, kb = await render_list(session, session_id, ws.user_id)
+            await callback.message.edit_text(text, reply_markup=kb)
+
+        await callback.answer()
+        return
+
+    ex = await session.get(Exercise, data["ex_id"])
+    ex_name = ex.name if ex else "Кардио"
+
+    await callback.message.edit_text(
+        f"🏃 <b>{ex_name}</b>\n\n"
+        f"Ввод времени: <code>{current_val or '0'}</code>\n\n"
+        f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>",
+        reply_markup=weight_keypad_kb(prefix="t_num")
     )
     await callback.answer()
