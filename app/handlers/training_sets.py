@@ -86,7 +86,7 @@ async def cb_custom_start(callback: CallbackQuery, session: AsyncSession,
     if not ex:
         return await callback.answer("Не найдено", show_alert=True)
 
-    # Для кардио: если уже есть completed подход — редактируем, а не создаём
+    # Проверяем, редактируем мы существующий подход или создаем новый
     existing_id = None
     if ex.kind != "strength":
         sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
@@ -99,16 +99,38 @@ async def cb_custom_start(callback: CallbackQuery, session: AsyncSession,
         ex_id=ex_id,
         editing_set_id=existing_id,
         return_to="tr_ex_card",
+        temp_num="",  # <-- Очищаем буфер для цифр
+        temp_weight=""  # <-- Очищаем буфер для веса
     )
 
     if ex.kind == "strength":
+        # Достаем данные для подсказки
+        sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+        completed = [s for s in sets if s.completed]
+        set_num = len(completed) + 1
+
         await state.set_state(TrainingFSM.entering_reps)
-        await state.update_data(temp_num="")
+
+        # Получаем подсказку по прошлому разу
+        ws = await session.get(WorkoutSession, session_id)
+        last_set = await get_last_completed_set(session, ws.user_id, ex_id,
+                                                current_session_id=session_id)
+
+        if last_set:
+            history = f"🕰 Прошлый раз: <b>{last_set.reps} × {format_weight(last_set.weight_kg)}</b>"
+        else:
+            history = f"📋 План: <b>{ex.reps} × {format_weight(ex.weight_kg)}</b>"
+
+        # Выводим красивый текст с подсказкой и цифровую клавиатуру
         await callback.message.edit_text(
-            f"<b>{ex.name}</b>\n\nСколько повторов сделал?",
+            f"🏋️ <b>{ex.name}</b> — подход {set_num}\n\n"
+            f"{history}\n\n"
+            f"Сколько повторов сделал? Введи число:",
             reply_markup=numeric_keypad_kb()
         )
+
     else:
+        # Логика для КАРДИО (остается без изменений)
         await state.set_state(TrainingFSM.entering_duration)
         if existing_id:
             current_set = await session.get(SessionSet, existing_id)
@@ -132,6 +154,7 @@ async def cb_custom_start(callback: CallbackQuery, session: AsyncSession,
                 "Сколько минут заняло? Введи число (можно 1.5 = 1 мин 30 сек):",
                 reply_markup=cancel_kb(),
             )
+
     await callback.answer()
 
 
@@ -161,7 +184,8 @@ async def fsm_enter_reps(message: Message, state: FSMContext,
         f"🏋️ <b>{ex.name}</b>\n\n"
         f"Повторов: <b>{text}</b>.\n"
         f"Теперь введи вес (снаряд).\n"
-        f"<i>По умолчанию: {suggestion}</i>",
+        f"<i>По умолчанию:</i> <code>{suggestion}</code>\n\n"
+        f"<i>(Нажми на значение по умолчанию, чтобы скопировать)</i>",
         reply_markup=weight_keypad_kb()
     )
 
@@ -330,29 +354,27 @@ async def cb_edit_set(callback: CallbackQuery, session: AsyncSession,
 
     weight_text = format_weight(target.weight_kg)
 
-    # Разрешаем удаление ТОЛЬКО если это подход сверх плана
-    plan = ex.sets or 0
-    can_delete = (ex.kind == "strength") and (target.set_number > plan)
-
     await state.update_data(
         session_id=session_id,
         ex_id=ex.id,
         editing_set_id=set_id,
         return_to="tr_strength_summary",
+        temp_num=""  # <-- ОЧИСТИЛИ БУФЕР
     )
     await state.set_state(TrainingFSM.entering_reps)
+
     await callback.message.edit_text(
         f"<b>{ex.name}</b> — подход {target.set_number}\n\n"
-        f"Сейчас:\n<b><code>{target.reps} × {weight_text}</code></b>\n\n"
-        "Сколько повторов сделал на самом деле? Введи число:",
-        reply_markup=edit_set_kb(session_id, set_id, can_delete=can_delete),
+        f"Текущее значение: <code>{target.reps} × {weight_text}</code>\n\n"
+        "Введи новое количество повторов:",
+        reply_markup=numeric_keypad_kb(),  # <-- ПОКАЗАЛИ КЛАВИАТУРУ
     )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("tr_add_set:"))
-async def cb_add_set(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
-    """Добавление подхода сверх плана (силовое)."""
+async def cb_add_set(callback: CallbackQuery, session: AsyncSession,
+                     state: FSMContext):
     _, sess_str, ex_str = callback.data.split(":")
     session_id = int(sess_str)
     ex_id = int(ex_str)
@@ -361,17 +383,33 @@ async def cb_add_set(callback: CallbackQuery, session: AsyncSession, state: FSMC
     if not ex:
         return await callback.answer("Не найдено", show_alert=True)
 
+    sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+    completed = [s for s in sets if s.completed]
+    set_num = len(completed) + 1
+
+    ws = await session.get(WorkoutSession, session_id)
+    last_set = await get_last_completed_set(session, ws.user_id, ex_id,
+                                            current_session_id=session_id)
+
+    if last_set:
+        history = f"🕰 Прошлый раз: <b>{last_set.reps} × {format_weight(last_set.weight_kg)}</b>"
+    else:
+        history = f"📋 План: <b>{ex.reps} × {format_weight(ex.weight_kg)}</b>"
+
     await state.update_data(
         session_id=session_id,
         ex_id=ex_id,
-        editing_set_id=None,   # создаём новый
+        editing_set_id=None,
         return_to="tr_strength_summary",
+        temp_num=""
     )
     await state.set_state(TrainingFSM.entering_reps)
+
     await callback.message.edit_text(
-        f"<b>{ex.name}</b> — новый подход\n\n"
-        "Сколько повторов сделал? Введи число:",
-        reply_markup=cancel_kb(),
+        f"🏋️ <b>{ex.name}</b> — подход {set_num}\n\n"
+        f"{history}\n\n"
+        f"Сколько повторов сделал?",
+        reply_markup=numeric_keypad_kb()
     )
     await callback.answer()
 
@@ -461,8 +499,10 @@ async def cb_edit_menu(callback: CallbackQuery, session: AsyncSession):
 
 
 @router.callback_query(F.data.startswith("num:"))
-async def cb_numeric_input(callback: CallbackQuery, state: FSMContext,
-                           session: AsyncSession):
+async def cb_numeric_input(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    if "session_id" not in data:
+        return await callback.answer("Устаревшая кнопка. Открой упражнение заново.", show_alert=True)
     action = callback.data.split(":")[1]
     data = await state.get_data()
     current_val = data.get("temp_num", "")
@@ -494,13 +534,12 @@ async def cb_numeric_input(callback: CallbackQuery, state: FSMContext,
         suggested = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
         suggestion = format_weight(suggested) if suggested else "без веса"
 
-        # ДОБАВИЛИ ex.name
         await callback.message.edit_text(
             f"🏋️ <b>{ex.name}</b>\n\n"
             f"Повторов: <b>{current_val}</b>.\n"
             f"Теперь введи вес (снаряд).\n"
-            f"<i>По умолчанию: {suggestion}</i>\n\n"
-            f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>",
+            f"<i>По умолчанию:</i> <code>{suggestion}</code>\n\n"
+            f"<i>(Нажми на значение по умолчанию, чтобы скопировать)</i>",
             reply_markup=weight_keypad_kb()
         )
         await callback.answer()
@@ -514,8 +553,10 @@ async def cb_numeric_input(callback: CallbackQuery, state: FSMContext,
 
 
 @router.callback_query(F.data.startswith("w_num:"))
-async def cb_weight_input(callback: CallbackQuery, state: FSMContext,
-                          session: AsyncSession):
+async def cb_weight_input(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    if "session_id" not in data:
+        return await callback.answer("Устаревшая кнопка. Открой упражнение заново.", show_alert=True)
     action = callback.data.split(":")[1]
     data = await state.get_data()
     current_val = data.get("temp_weight", "")
@@ -600,16 +641,18 @@ async def cb_weight_input(callback: CallbackQuery, state: FSMContext,
     await callback.message.edit_text(
         f"🏋️ <b>{ex_name}</b>\n\n"
         f"Повторов: <b>{reps}</b>.\n"
-        f"Ввод веса: <b>{current_val or '0'}</b>\n\n"
-        f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>", # <-- ДЛИННЫЙ ТЕКСТ
+        f"Ввод веса: <code>{current_val or '0'}</code>\n\n"
+        f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>",
         reply_markup=weight_keypad_kb()
     )
     await callback.answer()
 
 
 @router.callback_query(F.data == "w_num:back_from_text")
-async def cb_back_from_text(callback: CallbackQuery, state: FSMContext,
-                            session: AsyncSession):
+async def cb_back_from_text(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    if "session_id" not in data:
+        return await callback.answer("Устаревшая кнопка.", show_alert=True)
     data = await state.get_data()
     current_val = data.get("temp_weight", "")
     reps = data.get("custom_reps")
@@ -623,8 +666,8 @@ async def cb_back_from_text(callback: CallbackQuery, state: FSMContext,
     await callback.message.edit_text(
         f"🏋️ <b>{ex_name}</b>\n\n"
         f"Повторов: <b>{reps}</b>.\n"
-        f"Ввод веса: <b>{current_val or '0'}</b>\n\n"
-        f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>", # <-- ДЛИННЫЙ ТЕКСТ
+        f"Ввод веса: <code>{current_val or '0'}</code>\n\n"
+        f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>",
         reply_markup=weight_keypad_kb()
     )
     await callback.answer()
