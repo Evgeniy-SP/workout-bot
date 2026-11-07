@@ -30,7 +30,14 @@ async def _load_workout(session: AsyncSession, wt_id: int) -> WorkoutType | None
 @router.callback_query(F.data.startswith("ex_new:"))
 async def choose_kind(callback: CallbackQuery, state: FSMContext):
     wt_id = int(callback.data.split(":")[1])
-    await state.update_data(wt_id=wt_id, temp_num="", temp_weight="")
+
+    await state.update_data(
+        wt_id=wt_id,
+        temp_num="",
+        temp_weight="",
+        return_to="ex_list"
+    )
+
     await state.set_state(WorkoutCreate.adding_exercise_kind)
     await callback.message.edit_text(
         "Какой тип упражнения?", reply_markup=choose_kind_kb(wt_id)
@@ -62,7 +69,7 @@ async def add_name(message: Message, state: FSMContext):
         await state.set_state(WorkoutCreate.adding_exercise_sets)
         await message.answer(
             "Сколько подходов? (целое число > 0):",
-            reply_markup=numeric_keypad_kb(prefix="cr_num") # <-- КЛАВИАТУРА
+            reply_markup=numeric_keypad_kb(prefix="cr_num", show_back=False) # <-- БЕЗ НАЗАД
         )
     else:
         await state.set_state(WorkoutCreate.adding_exercise_duration)
@@ -85,9 +92,27 @@ async def cb_cr_numeric(callback: CallbackQuery, state: FSMContext):
         if len(current_val) < 3:
             current_val += digit
             await state.update_data(temp_num=current_val)
+
     elif action == "del":
         current_val = current_val[:-1]
         await state.update_data(temp_num=current_val)
+
+    elif action == "back":
+        await state.update_data(temp_num="")
+        current_state = await state.get_state()
+        if current_state == WorkoutCreate.adding_exercise_reps:
+            await state.set_state(WorkoutCreate.adding_exercise_sets)
+            try:
+                await callback.message.edit_text(
+                    "Сколько подходов? (целое число > 0):",
+                    reply_markup=numeric_keypad_kb(prefix="cr_num",
+                                                   show_back=False)
+                )
+            except Exception:
+                pass
+        await callback.answer()
+        return
+
     elif action == "done":
         if not current_val:
             return await callback.answer("Введи число!", show_alert=True)
@@ -96,25 +121,47 @@ async def cb_cr_numeric(callback: CallbackQuery, state: FSMContext):
         if current_state == WorkoutCreate.adding_exercise_sets:
             await state.update_data(sets=int(current_val), temp_num="")
             await state.set_state(WorkoutCreate.adding_exercise_reps)
-            await callback.message.edit_text(
-                "Сколько повторений? (целое число > 0):",
-                reply_markup=numeric_keypad_kb(prefix="cr_num")
-            )
+            try:
+                await callback.message.edit_text(
+                    "Сколько повторений? (целое число > 0):",
+                    reply_markup=numeric_keypad_kb(prefix="cr_num",
+                                                   show_back=True)
+                )
+            except Exception:
+                pass
+
         elif current_state == WorkoutCreate.adding_exercise_reps:
             await state.update_data(reps=int(current_val), temp_weight="")
             await state.set_state(WorkoutCreate.adding_exercise_weight)
-            await callback.message.edit_text(
-                "Введи вес (например 12.5) или нажми «Ввести текстом»:",
-                reply_markup=weight_keypad_kb(prefix="cr_w_num")
-            )
+            try:
+                await callback.message.edit_text(
+                    "Введи вес (например 12.5) или нажми «Ввести текстом»:",
+                    reply_markup=weight_keypad_kb(prefix="cr_w_num")
+                )
+            except Exception:
+                pass
+
         await callback.answer()
         return
 
-    field_name = "подходов" if await state.get_state() == WorkoutCreate.adding_exercise_sets else "повторений"
-    await callback.message.edit_text(
-        f"Ввод {field_name}: <code>{current_val or '0'}</code>",
-        reply_markup=numeric_keypad_kb(prefix="cr_num")
-    )
+    # Обновляем экран в процессе ввода
+    current_state = await state.get_state()
+    if current_state == WorkoutCreate.adding_exercise_reps:
+        field_name = "повторений"
+        show_back = True
+    else:
+        field_name = "подходов"
+        show_back = False
+
+    try:  # <--- ОБЕРНУЛИ В TRY/EXCEPT
+        await callback.message.edit_text(
+            f"Ввод {field_name}: <code>{current_val or '0'}</code>",
+            reply_markup=numeric_keypad_kb(prefix="cr_num",
+                                           show_back=show_back)
+        )
+    except Exception:
+        pass  # Если текст не изменился - просто игнорируем
+
     await callback.answer()
 
 

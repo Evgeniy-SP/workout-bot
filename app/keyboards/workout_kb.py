@@ -632,33 +632,29 @@ def session_note_kb(session_id: int, has_note: bool) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def numeric_keypad_kb(current_val: str = "") -> InlineKeyboardMarkup:
+def numeric_keypad_kb(prefix: str = "num",
+                      show_back: bool = False) -> InlineKeyboardMarkup:
     """Цифровая клавиатура для ввода чисел."""
     kb = InlineKeyboardBuilder()
 
-    # Цифры от 1 до 9 (по 3 в ряд)
-    for i in range(1, 10):
-        kb.button(text=str(i), callback_data=f"num:add:{i}")
-
-    # Нижний ряд: стереть, 0, готово
-    kb.button(text="⌫ Стереть", callback_data="num:del")
-    kb.button(text="0", callback_data="num:add:0")
-    kb.button(text="✅ Готово", callback_data="num:done")
-
-    kb.adjust(3, 3, 3, 3)  # Сетка 3x4
-    return kb.as_markup()
-
-
-def numeric_keypad_kb(prefix: str = "num") -> InlineKeyboardMarkup:
-    """Цифровая клавиатура для ввода повторов."""
-    kb = InlineKeyboardBuilder()
     for i in range(1, 10):
         kb.button(text=str(i), callback_data=f"{prefix}:add:{i}")
+
     kb.button(text="⌫ Стереть", callback_data=f"{prefix}:del")
     kb.button(text="0", callback_data=f"{prefix}:add:0")
     kb.button(text="✅ Готово", callback_data=f"{prefix}:done")
+
+    if show_back:
+        kb.button(text="⬅️ Назад", callback_data=f"{prefix}:back")
+
     kb.button(text="❌ Отмена", callback_data="fsm_cancel")
-    kb.adjust(3, 3, 3, 3, 1)
+
+    # Если есть кнопка назад, сетка будет чуть другой
+    if show_back:
+        kb.adjust(3, 3, 3, 3, 1, 1)
+    else:
+        kb.adjust(3, 3, 3, 3, 1)
+
     return kb.as_markup()
 
 
