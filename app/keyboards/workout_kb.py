@@ -630,3 +630,76 @@ def session_note_kb(session_id: int, has_note: bool) -> InlineKeyboardMarkup:
     kb.button(text="❌ Отмена", callback_data="fsm_cancel")
     kb.adjust(1)
     return kb.as_markup()
+
+
+def numeric_keypad_kb(current_val: str = "") -> InlineKeyboardMarkup:
+    """Цифровая клавиатура для ввода чисел."""
+    kb = InlineKeyboardBuilder()
+
+    # Цифры от 1 до 9 (по 3 в ряд)
+    for i in range(1, 10):
+        kb.button(text=str(i), callback_data=f"num:add:{i}")
+
+    # Нижний ряд: стереть, 0, готово
+    kb.button(text="⌫ Стереть", callback_data="num:del")
+    kb.button(text="0", callback_data="num:add:0")
+    kb.button(text="✅ Готово", callback_data="num:done")
+
+    kb.adjust(3, 3, 3, 3)  # Сетка 3x4
+    return kb.as_markup()
+
+
+def numeric_keypad_kb() -> InlineKeyboardMarkup:
+    """Цифровая клавиатура для ввода повторов."""
+    kb = InlineKeyboardBuilder()
+
+    # Цифры от 1 до 9 (по 3 в ряд)
+    for i in range(1, 10):
+        kb.button(text=str(i), callback_data=f"num:add:{i}")
+
+    # Нижний ряд
+    kb.button(text="⌫ Стереть", callback_data="num:del")
+    kb.button(text="0", callback_data="num:add:0")
+    kb.button(text="✅ Готово", callback_data="num:done")
+
+    # Кнопка отмены под цифрами
+    kb.button(text="❌ Отмена", callback_data="fsm_cancel")
+
+    kb.adjust(3, 3, 3, 3, 1)
+    return kb.as_markup()
+
+
+def weight_keypad_kb() -> InlineKeyboardMarkup:
+    """Цифровая клавиатура для ввода веса."""
+    kb = InlineKeyboardBuilder()
+
+    # Цифры 1-9
+    for i in range(1, 10):
+        kb.button(text=str(i), callback_data=f"w_num:add:{i}")
+
+    # Ряд с точкой, нулем и запятой (как на калькуляторе)
+    kb.button(text=".", callback_data="w_num:add:.")
+    kb.button(text="0", callback_data="w_num:add:0")
+    kb.button(text=",", callback_data="w_num:add:,")
+
+    # Нижние кнопки по две в ряд
+    kb.button(text="⌫ Стереть", callback_data="w_num:del")
+    kb.button(text="✅ Готово", callback_data="w_num:done")
+
+    kb.button(text="📝 Ввести текстом", callback_data="w_num:text")
+    kb.button(text="⬅️ Назад", callback_data="w_num:back")
+
+    kb.button(text="❌ Отмена", callback_data="fsm_cancel")
+
+    # Идеальная сетка: 3x3 цифры, 3 в ряд (точка, 0, запятая), 2 в ряд, 2 в ряд, 1
+    kb.adjust(3, 3, 3, 3, 2, 2, 1)
+    return kb.as_markup()
+
+
+def text_weight_kb() -> InlineKeyboardMarkup:
+    """Клавиатура для экрана ввода веса текстом."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⬅️ Назад к клавиатуре", callback_data="w_num:back_from_text")
+    kb.button(text="❌ Отмена", callback_data="fsm_cancel")
+    kb.adjust(1)
+    return kb.as_markup()

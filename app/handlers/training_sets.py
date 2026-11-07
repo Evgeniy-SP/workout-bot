@@ -8,8 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Exercise, SessionSet, WorkoutSession
 from app.db.queries import get_last_completed_set, get_sets_grouped
-from app.keyboards.workout_kb import approach_kb, cancel_kb, edit_set_kb
-from app.render import render_approach
+from app.keyboards.workout_kb import (
+    cancel_kb,
+    edit_set_kb,
+    numeric_keypad_kb,
+    weight_keypad_kb,
+    text_weight_kb,
+)
 from app.services.training_service import (
     next_set_num, render_approach_screen, render_list,
 )
@@ -98,9 +103,10 @@ async def cb_custom_start(callback: CallbackQuery, session: AsyncSession,
 
     if ex.kind == "strength":
         await state.set_state(TrainingFSM.entering_reps)
+        await state.update_data(temp_num="")
         await callback.message.edit_text(
-            f"<b>{ex.name}</b>\n\nСколько повторов сделал? Введи число:",
-            reply_markup=cancel_kb(),
+            f"<b>{ex.name}</b>\n\nСколько повторов сделал?",
+            reply_markup=numeric_keypad_kb()
         )
     else:
         await state.set_state(TrainingFSM.entering_duration)
@@ -140,31 +146,23 @@ async def fsm_enter_reps(message: Message, state: FSMContext,
     data = await state.get_data()
     await state.update_data(custom_reps=int(text))
 
-    await state.set_state(TrainingFSM.entering_weight)
+    # Получаем подсказку по весу
+    ex = await session.get(Exercise, data["ex_id"])
+    ws = await session.get(WorkoutSession, data["session_id"])
 
-    editing_set_id = data.get("editing_set_id")
-
-    if editing_set_id:
-        # Если редактируем существующий подход — берем ЕГО вес
-        target = await session.get(SessionSet, editing_set_id)
-        suggested = target.weight_kg if target else None
-        prefix = "Сейчас"
-    else:
-        # Если делаем новый — берем из прошлой тренировки или плана
-        ex = await session.get(Exercise, data["ex_id"])
-        ws = await session.get(WorkoutSession, data["session_id"])
-        last_set = await get_last_completed_set(session, ws.user_id,
-                                                data["ex_id"])
-        suggested = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
-        prefix = "По умолчанию"
-
+    last_set = await get_last_completed_set(session, ws.user_id, data["ex_id"])
+    suggested = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
     suggestion = format_weight(suggested) if suggested else "без веса"
 
+    await state.set_state(TrainingFSM.entering_weight)
+
+    # Выводим с названием упражнения для ширины
     await message.answer(
-        f"Сколько весил снаряд?\n"
-        f"<i>{prefix}: {suggestion}</i>\n\n"
-        "Введи число или текст (например «Своё тело»):",
-        reply_markup=cancel_kb(),
+        f"🏋️ <b>{ex.name}</b>\n\n"
+        f"Повторов: <b>{text}</b>.\n"
+        f"Теперь введи вес (снаряд).\n"
+        f"<i>По умолчанию: {suggestion}</i>",
+        reply_markup=weight_keypad_kb()
     )
 
 
@@ -458,5 +456,175 @@ async def cb_edit_menu(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(
         "📝 <b>Выбери подход для редактирования:</b>",
         reply_markup=kb.as_markup()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("num:"))
+async def cb_numeric_input(callback: CallbackQuery, state: FSMContext,
+                           session: AsyncSession):
+    action = callback.data.split(":")[1]
+    data = await state.get_data()
+    current_val = data.get("temp_num", "")
+
+    if action == "add":
+        digit = callback.data.split(":")[2]
+        if len(current_val) < 3:
+            current_val += digit
+            await state.update_data(temp_num=current_val)
+
+    elif action == "del":
+        current_val = current_val[:-1]
+        await state.update_data(temp_num=current_val)
+
+    elif action == "done":
+        if not current_val:
+            return await callback.answer("Введи хотя бы одну цифру!",
+                                         show_alert=True)
+
+        await state.update_data(custom_reps=int(current_val))
+        await state.update_data(temp_weight="")
+        await state.set_state(TrainingFSM.entering_weight)
+
+        ex = await session.get(Exercise, data["ex_id"])
+        ws = await session.get(WorkoutSession, data["session_id"])
+
+        last_set = await get_last_completed_set(session, ws.user_id,
+                                                data["ex_id"])
+        suggested = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
+        suggestion = format_weight(suggested) if suggested else "без веса"
+
+        # ДОБАВИЛИ ex.name
+        await callback.message.edit_text(
+            f"🏋️ <b>{ex.name}</b>\n\n"
+            f"Повторов: <b>{current_val}</b>.\n"
+            f"Теперь введи вес (снаряд).\n"
+            f"<i>По умолчанию: {suggestion}</i>\n\n"
+            f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>",
+            reply_markup=weight_keypad_kb()
+        )
+        await callback.answer()
+        return
+
+    await callback.message.edit_text(
+        f"<b>Ввод повторов</b>\n\nТекущее значение: <b>{current_val or '0'}</b>",
+        reply_markup=numeric_keypad_kb()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("w_num:"))
+async def cb_weight_input(callback: CallbackQuery, state: FSMContext,
+                          session: AsyncSession):
+    action = callback.data.split(":")[1]
+    data = await state.get_data()
+    current_val = data.get("temp_weight", "")
+    reps = data.get("custom_reps")
+
+    if action == "add":
+        digit = callback.data.split(":")[2]
+        if len(current_val) < 5:
+            current_val += digit
+            await state.update_data(temp_weight=current_val)
+
+    elif action == "del":
+        current_val = current_val[:-1]
+        await state.update_data(temp_weight=current_val)
+
+    elif action == "text":
+        await callback.message.edit_text(
+            "📝 Напиши вес текстом (например «Своё тело», «Резинка») или отправь число:",
+            reply_markup=text_weight_kb()
+        )
+        await callback.answer()
+        return
+
+    elif action == "back":
+        await state.set_state(TrainingFSM.entering_reps)
+        await callback.message.edit_text(
+            f"<b>Ввод повторов</b>\n\nТекущее значение: <b>{reps}</b>",
+            reply_markup=numeric_keypad_kb()
+        )
+        await callback.answer()
+        return
+
+    elif action == "done":
+        if not current_val:
+            return await callback.answer(
+                "Введи вес или нажми 'Ввести текстом'", show_alert=True)
+
+        weight_str = current_val.replace(",", ".")
+
+        from datetime import datetime, timezone
+        from app.db.models import SessionSet
+
+        session_id = data["session_id"]
+        ex_id = data["ex_id"]
+        editing_set_id = data.get("editing_set_id")
+
+        if editing_set_id:
+            target = await session.get(SessionSet, editing_set_id)
+            target.reps = reps
+            target.weight_kg = weight_str
+            target.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+        else:
+            sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+            new_set = SessionSet(
+                session_id=session_id, exercise_id=ex_id,
+                set_number=next_set_num(sets),
+                reps=reps, weight_kg=weight_str, completed=True,
+                completed_at=datetime.now(timezone.utc)
+            )
+            session.add(new_set)
+            await session.commit()
+
+        await state.clear()
+
+        result = await render_approach_screen(session, session_id, ex_id)
+        if result:
+            text, kb = result
+            await callback.message.edit_text(text, reply_markup=kb)
+        else:
+            ws = await session.get(WorkoutSession, session_id)
+            text, kb = await render_list(session, session_id, ws.user_id)
+            await callback.message.edit_text(text, reply_markup=kb)
+
+        await callback.answer()
+        return
+
+    # Выводим с названием упражнения
+    ex = await session.get(Exercise, data["ex_id"])
+    ex_name = ex.name if ex else "Упражнение"
+
+    await callback.message.edit_text(
+        f"🏋️ <b>{ex_name}</b>\n\n"
+        f"Повторов: <b>{reps}</b>.\n"
+        f"Ввод веса: <b>{current_val or '0'}</b>\n\n"
+        f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>", # <-- ДЛИННЫЙ ТЕКСТ
+        reply_markup=weight_keypad_kb()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "w_num:back_from_text")
+async def cb_back_from_text(callback: CallbackQuery, state: FSMContext,
+                            session: AsyncSession):
+    data = await state.get_data()
+    current_val = data.get("temp_weight", "")
+    reps = data.get("custom_reps")
+    ex_id = data.get("ex_id")
+
+    ex = await session.get(Exercise, ex_id)
+    ex_name = ex.name if ex else "Упражнение"
+
+    await state.set_state(TrainingFSM.entering_weight)
+
+    await callback.message.edit_text(
+        f"🏋️ <b>{ex_name}</b>\n\n"
+        f"Повторов: <b>{reps}</b>.\n"
+        f"Ввод веса: <b>{current_val or '0'}</b>\n\n"
+        f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>", # <-- ДЛИННЫЙ ТЕКСТ
+        reply_markup=weight_keypad_kb()
     )
     await callback.answer()
