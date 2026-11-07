@@ -10,7 +10,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Важно: даем права на коммит бейджа
+      contents: write
 
     steps:
     - uses: actions/checkout@v4
@@ -29,6 +29,10 @@ jobs:
     - name: Run tests with coverage
       run: |
         pytest --cov=app --cov-report=term-missing tests/ -v
+
+    - name: Fix setuptools for coverage-badge
+      run: |
+        pip install "setuptools<82"
 
     - name: Generate coverage badge
       uses: tj-actions/coverage-badge-py@v2
