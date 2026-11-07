@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Важно: даем права на коммит бейджа
 
     steps:
     - uses: actions/checkout@v4
@@ -24,6 +26,17 @@ jobs:
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
 
-    - name: Run tests with pytest
+    - name: Run tests with coverage
       run: |
-        pytest tests/ -v
+        pytest --cov=app --cov-report=term-missing tests/ -v
+
+    - name: Generate coverage badge
+      uses: tj-actions/coverage-badge-py@v2
+      with:
+        output: coverage.svg
+
+    - name: Commit coverage badge
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "chore: обновлен бейдж покрытия тестами"
+        file_pattern: coverage.svg
