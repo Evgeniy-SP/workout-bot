@@ -25,19 +25,15 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
+        pip install pybadges
 
     - name: Run tests with coverage
       run: |
-        pytest --cov=app --cov-report=term-missing tests/ -v
-
-    - name: Fix setuptools for coverage-badge
-      run: |
-        pip install "setuptools<82"
+        pytest --cov=app --cov-report=term-missing --cov-report=xml tests/ -v
 
     - name: Generate coverage badge
-      uses: tj-actions/coverage-badge-py@v2
-      with:
-        output: coverage.svg
+      run: |
+        python scripts/generate_badge.py
 
     - name: Commit coverage badge
       uses: stefanzweifel/git-auto-commit-action@v5
