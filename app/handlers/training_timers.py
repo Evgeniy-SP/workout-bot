@@ -62,10 +62,21 @@ async def _run_rest_timer(bot, chat_id: int, timer_key: str, session_id: int, se
                     logger.error(f"Ошибка при очистке кнопки таймера: {e}")
 
         # Разные уведомления в зависимости от контекста
+        # достаем название упражнения для красивого уведомления
+        ex_name_text = ""
+        if context == "ex" and ex_id:
+            async with async_session_maker() as session:
+                # Импортируем Exercise локально, чтобы не засорять шапку
+                from app.db.models import Exercise
+                ex = await session.get(Exercise, ex_id)
+                if ex:
+                    ex_name_text = f" «{ex.name}»"
+
+        # Разные уведомления в зависимости от контекста
         if context == "ex":
-            msg_text = "⏰ <b>Отдых между подходами окончен!</b> Пора делать следующий подход."
+            msg_text = f"⏰ <b>Отдых между подходами{ex_name_text} окончен!</b> Пора делать следующий."
         else:
-            msg_text = "⏰ <b>Отдых между упражнениями окончен!</b> Пора делать следующее упражнение."
+            msg_text = "⏰ <b>Отдых между упражнениями окончен!</b> Пора делать следующее."
 
         msg = await bot.send_message(
             chat_id=chat_id,

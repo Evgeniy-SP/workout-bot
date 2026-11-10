@@ -107,7 +107,7 @@ def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
 
     # Блок таймеров/отдыха
     if timer_str:
-        lines.append(f"⏱ <b>Таймер:</b> {timer_str}")
+        lines.append(timer_str)
     if rest_time_str:
         if last_exercise_name:
             lines.append(
@@ -169,7 +169,7 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
 
         extra = ""
         if timer_str:
-            extra += f"⏱ <b>Таймер:</b> {timer_str}\n"
+            extra += f"{timer_str}\n"
         if rest_time_str:
             extra += f"⏱ <i>Отдых: {rest_time_str}</i>"
 

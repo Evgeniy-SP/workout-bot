@@ -230,17 +230,30 @@ async def render_approach_screen(
                     sec = total_sec % 60
                     rest_time_str = f"{m} мин {sec} сек" if m > 0 else f"{sec} сек"
 
-        # =======================================================
-        # ВОТ ЗДЕСЬ МЕНЯЕМ КЛЮЧ ДЛЯ ТАЙМЕРА СИЛОВОГО УПРАЖНЕНИЯ
-        # =======================================================
-        timer_key = f"{session_id}_ex_{ex_id}"
-        if timer_key in ACTIVE_TIMERS:
-            remaining = int((ACTIVE_TIMERS[timer_key][
-                                 "end_time"] - datetime.now(
-                timezone.utc)).total_seconds())
-            if remaining > 0:
-                timer_str = f"осталось {remaining} сек"
-        # =======================================================
+        # === БЛОК ТАЙМЕРОВ ===
+        timer_strs = []
+        now = datetime.now(timezone.utc)
+
+        # 1. Проверяем таймер списка (между упражнениями)
+        list_key = f"{session_id}_list"
+        if list_key in ACTIVE_TIMERS:
+            rem = int((ACTIVE_TIMERS[list_key]["end_time"] - now).total_seconds())
+            if rem > 0:
+                m, s = divmod(rem, 60)
+                t = f"{m} мин {s} сек" if m > 0 else f"{s} сек"
+                timer_strs.append(f"⏱ <b>Таймер:</b> между упражнениями (осталось {t})")
+
+        # 2. Проверяем таймер самого упражнения
+        ex_key = f"{session_id}_ex_{ex_id}"
+        if ex_key in ACTIVE_TIMERS:
+            rem = int((ACTIVE_TIMERS[ex_key]["end_time"] - now).total_seconds())
+            if rem > 0:
+                m, s = divmod(rem, 60)
+                t = f"{m} мин {s} сек" if m > 0 else f"{s} сек"
+                timer_strs.append(f"⏱ <b>Таймер:</b> до подхода в «{ex.name}» (осталось {t})")
+
+        timer_str = "\n".join(timer_strs) if timer_strs else None
+        # =====================
 
         current_last_set = completed[-1] if completed else None
         action_weight = current_last_set.weight_kg if current_last_set else (
@@ -305,12 +318,35 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
                     last_ex_name = ex.name
                     break
 
-    timer_str = None
-    timer_key = f"{session_id}_list"
-    if timer_key in ACTIVE_TIMERS:
-        remaining = int((ACTIVE_TIMERS[timer_key]["end_time"] - datetime.now(timezone.utc)).total_seconds())
-        if remaining > 0:
-            timer_str = f"осталось {remaining} сек"
+    timer_strs = []
+    now = datetime.now(timezone.utc)
+
+    # 1. Проверяем таймер списка
+    list_key = f"{session_id}_list"
+    if list_key in ACTIVE_TIMERS:
+        rem = int((ACTIVE_TIMERS[list_key]["end_time"] - now).total_seconds())
+        if rem > 0:
+            m, s = divmod(rem, 60)
+            t = f"{m} мин {s} сек" if m > 0 else f"{s} сек"
+            timer_strs.append(f"⏱ <b>Таймер:</b> между упражнениями (осталось {t})")
+
+    # 2. Проверяем все таймеры упражнений этой сессии
+    for key, val in ACTIVE_TIMERS.items():
+        if key.startswith(f"{session_id}_ex_"):
+            rem = int((val["end_time"] - now).total_seconds())
+            if rem > 0:
+                # Достаем ID упражнения из ключа
+                ex_id_from_key = int(key.split("_")[-1])
+                ex_name = "Упражнение"
+                for e in exercises:
+                    if e.id == ex_id_from_key:
+                        ex_name = e.name
+                        break
+                m, s = divmod(rem, 60)
+                t = f"{m} мин {s} сек" if m > 0 else f"{s} сек"
+                timer_strs.append(f"⏱ <b>Таймер:</b> до подхода в «{ex_name}» (осталось {t})")
+
+    timer_str = "\n".join(timer_strs) if timer_strs else None
 
     visible_exercises = []
     for ex in exercises:
