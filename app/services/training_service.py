@@ -111,6 +111,44 @@ async def render_approach_screen(
     sets = sets_by_ex.get(ex_id, [])
     completed = [s for s in sets if s.completed]
 
+    # === СЧИТАЕМ ОТДЫХ И ТАЙМЕРЫ ЗАРАНЕЕ ===
+    rest_time_str = None
+    if completed:
+        last_completed = completed[-1]
+        if last_completed.completed_at:
+            delta = datetime.now(timezone.utc) - last_completed.completed_at
+            total_sec = int(delta.total_seconds())
+            if total_sec >= 10:
+                m = total_sec // 60
+                sec = total_sec % 60
+                rest_time_str = f"{m} мин {sec} сек" if m > 0 else f"{sec} сек"
+
+    timer_strs = []
+    now = datetime.now(timezone.utc)
+
+    # 1. Таймер списка
+    list_key = f"{session_id}_list"
+    if list_key in ACTIVE_TIMERS:
+        rem = int((ACTIVE_TIMERS[list_key]["end_time"] - now).total_seconds())
+        if rem > 0:
+            m, s = divmod(rem, 60)
+            t = f"{m} мин {s} сек" if m > 0 else f"{s} сек"
+            timer_strs.append(
+                f"⏱ <b>Таймер:</b> между упражнениями (осталось {t})")
+
+    # 2. Таймер упражнения
+    ex_key = f"{session_id}_ex_{ex_id}"
+    if ex_key in ACTIVE_TIMERS:
+        rem = int((ACTIVE_TIMERS[ex_key]["end_time"] - now).total_seconds())
+        if rem > 0:
+            m, s = divmod(rem, 60)
+            t = f"{m} мин {s} сек" if m > 0 else f"{s} сек"
+            timer_strs.append(
+                f"⏱ <b>Таймер:</b> до подхода в «{ex.name}» (осталось {t})")
+
+    timer_str = "\n".join(timer_strs) if timer_strs else None
+    # ========================================
+
     # Достаем заметку к упражнению
     note_res = await session.execute(
         select(SessionExerciseNote).where(
@@ -208,52 +246,16 @@ async def render_approach_screen(
             last_note=last_note,
             last_reps=last_reps,
             last_weight=last_weight,
-            last_date=last_date
+            last_date=last_date,
+            timer_str=timer_str,
+            rest_time_str=rest_time_str
         )
         kb = strength_summary_kb(session_id, ex, completed,
-                                 next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
+                                 next_ex_id=next_ex_id, prev_ex_id=prev_ex_id,
+                                 has_timer=bool(timer_str))
     else:
         # Есть еще подходы — экран подхода
         set_num = len(completed) + 1
-
-        rest_time_str = None
-        timer_str = None
-
-        if completed:
-            last_completed = completed[-1]
-            if last_completed.completed_at:
-                delta = datetime.now(
-                    timezone.utc) - last_completed.completed_at
-                total_sec = int(delta.total_seconds())
-                if total_sec >= 10:
-                    m = total_sec // 60
-                    sec = total_sec % 60
-                    rest_time_str = f"{m} мин {sec} сек" if m > 0 else f"{sec} сек"
-
-        # === БЛОК ТАЙМЕРОВ ===
-        timer_strs = []
-        now = datetime.now(timezone.utc)
-
-        # 1. Проверяем таймер списка (между упражнениями)
-        list_key = f"{session_id}_list"
-        if list_key in ACTIVE_TIMERS:
-            rem = int((ACTIVE_TIMERS[list_key]["end_time"] - now).total_seconds())
-            if rem > 0:
-                m, s = divmod(rem, 60)
-                t = f"{m} мин {s} сек" if m > 0 else f"{s} сек"
-                timer_strs.append(f"⏱ <b>Таймер:</b> между упражнениями (осталось {t})")
-
-        # 2. Проверяем таймер самого упражнения
-        ex_key = f"{session_id}_ex_{ex_id}"
-        if ex_key in ACTIVE_TIMERS:
-            rem = int((ACTIVE_TIMERS[ex_key]["end_time"] - now).total_seconds())
-            if rem > 0:
-                m, s = divmod(rem, 60)
-                t = f"{m} мин {s} сек" if m > 0 else f"{s} сек"
-                timer_strs.append(f"⏱ <b>Таймер:</b> до подхода в «{ex.name}» (осталось {t})")
-
-        timer_str = "\n".join(timer_strs) if timer_strs else None
-        # =====================
 
         current_last_set = completed[-1] if completed else None
         action_weight = current_last_set.weight_kg if current_last_set else (

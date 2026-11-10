@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
-from sqlalchemy import delete, func as sa_func, select
+from sqlalchemy import func as sa_func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Exercise, SessionExerciseNote, SessionSet, WorkoutSession
+from app.db.models import Exercise, SessionSet, WorkoutSession
 from app.db.queries import get_sets_grouped
 from app.keyboards.workout_kb import (
     after_finish_kb, choose_kind_kb, confirm_training_delete_kb,
@@ -298,9 +298,13 @@ async def cb_finish_confirm(callback: CallbackQuery, session: AsyncSession,
     duration_sec = int((ws.finished_at - ws.started_at).total_seconds())
     minutes = duration_sec // 60
 
+    from app.utils import fmt_msk_datetime
+    finished_time_str = fmt_msk_datetime(ws.finished_at)
+
     lines = [
         f"🏁 <b>{wt.name}</b> — завершена!",
-        "",
+        f"<i>Завершена: {finished_time_str} (МСК)</i>", # <-- Добавили время
+        "", # <-- Добавили отступ
         f"⏱ Длительность: ~{minutes} мин",
         f"📊 Выполнено: {done_ex} из {total_ex} упражнений",
         "",

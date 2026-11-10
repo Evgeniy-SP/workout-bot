@@ -368,7 +368,9 @@ def cardio_done_kb(session_id: int, ex: Exercise, can_remove: bool = False,
 
 def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
                         next_ex_id: int | None = None,
-                        prev_ex_id: int | None = None) -> InlineKeyboardMarkup:
+                        prev_ex_id: int | None = None,
+                        has_timer: bool = False
+                        ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     sizes = []
 
@@ -390,6 +392,25 @@ def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
     kb.button(text="➕ Добавить новый подход",
               callback_data=f"tr_add_set:{session_id}:{ex.id}")
     sizes.append(1)
+
+    # --- ДОБАВЛЯЕМ ТАЙМЕРЫ ---
+    kb.button(text="⏱ 60 секунд", callback_data=f"tr_timer:60:{session_id}:ex:{ex.id}")
+    kb.button(text="⏱ 90 секунд", callback_data=f"tr_timer:90:{session_id}:ex:{ex.id}")
+    kb.button(text="⏱ Своё время", callback_data=f"tr_timer_custom:{session_id}:ex:{ex.id}")
+    sizes.append(3)
+
+    # А вот Отмена/Обновление зависят от того, запущен ли таймер
+    if has_timer:
+        kb.button(text="⏱️ Отменить",
+                  callback_data=f"tr_timer_stop:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱️ Обновить",
+                  callback_data=f"tr_refresh:{session_id}:{ex.id}")
+        sizes.append(2)
+    else:
+        kb.button(text="🔄 Обновить время отдыха",
+                  callback_data=f"tr_refresh:{session_id}:{ex.id}")
+        sizes.append(1)
+    # -------------------------
 
     kb.button(text="📝 Заметка к упражнению",
               callback_data=f"tr_note_ex:{session_id}:{ex.id}")

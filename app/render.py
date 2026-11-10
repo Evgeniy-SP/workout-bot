@@ -214,7 +214,10 @@ def render_strength_summary(ex: Exercise, sets: list,
                             last_note: str | None = None,
                             last_reps: int | None = None,
                             last_weight: str | None = None,
-                            last_date: str | None = None) -> str:
+                            last_date: str | None = None,
+                            timer_str: str | None = None,
+                            rest_time_str: str | None = None
+                            ) -> str:
     if not sets:
         return f"🏋️ <b>{ex.name}</b>\n\nПока нет подходов."
 
@@ -270,5 +273,15 @@ def render_strength_summary(ex: Exercise, sets: list,
     lines.append(f"\n{stats}")
     lines.append(
         "\n💡 <i>Нажми на подход, чтобы изменить его, или добавь новый.</i>")
+
+    # --- ДОБАВЛЯЕМ ВЫВОД ТАЙМЕРА ---
+    extra = ""
+    if timer_str:
+        extra += f"\n\n{timer_str}"
+    if rest_time_str:
+        extra += f"\n⏱ <i>Отдых: {rest_time_str}</i>"
+
+    if extra:
+        lines.append(extra)
 
     return "\n".join(lines)
