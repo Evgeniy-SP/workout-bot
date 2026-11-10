@@ -3,14 +3,13 @@ from datetime import datetime, timezone
 
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Exercise, SessionSet, WorkoutSession
 from app.db.queries import get_last_completed_set, get_sets_grouped
 from app.keyboards.workout_kb import (
     cancel_kb,
-    edit_set_kb,
     numeric_keypad_kb,
     weight_keypad_kb,
     text_weight_kb,
@@ -184,8 +183,8 @@ async def fsm_enter_reps(message: Message, state: FSMContext,
         f"🏋️ <b>{ex.name}</b>\n\n"
         f"Повторов: <b>{text}</b>.\n"
         f"Теперь введи вес (снаряд).\n"
-        f"<i>По умолчанию:</i> <code>{suggestion}</code>\n\n"
-        f"<i>(Нажми на значение по умолчанию, чтобы скопировать)</i>",
+        f"<i>В прошлом подходе:</i> <code>{suggestion}</code>\n"
+        f"<i>(Нажми на значение, чтобы скопировать)</i>",
         reply_markup=weight_keypad_kb()
     )
 
@@ -363,11 +362,20 @@ async def cb_edit_set(callback: CallbackQuery, session: AsyncSession,
     )
     await state.set_state(TrainingFSM.entering_reps)
 
+    # Создаем клавиатуру и добавляем кнопку удаления
+    kb = numeric_keypad_kb()
+    kb.inline_keyboard.append([
+        InlineKeyboardButton(
+            text="🗑 Удалить подход",
+            callback_data=f"tr_delete_set:{session_id}:{set_id}"
+        )
+    ])
+
     await callback.message.edit_text(
         f"<b>{ex.name}</b> — подход {target.set_number}\n\n"
         f"Текущее значение: <code>{target.reps} × {weight_text}</code>\n\n"
         "Введи новое количество повторов:",
-        reply_markup=numeric_keypad_kb(),  # <-- ПОКАЗАЛИ КЛАВИАТУРУ
+        reply_markup=kb,
     )
     await callback.answer()
 
@@ -538,15 +546,21 @@ async def cb_numeric_input(callback: CallbackQuery, state: FSMContext, session: 
             f"🏋️ <b>{ex.name}</b>\n\n"
             f"Повторов: <b>{current_val}</b>.\n"
             f"Теперь введи вес (снаряд).\n"
-            f"<i>По умолчанию:</i> <code>{suggestion}</code>\n\n"
-            f"<i>(Нажми на значение по умолчанию, чтобы скопировать)</i>",
+            f"<i>В прошлом подходе:</i> <code>{suggestion}</code>"
+            f"<i>(Нажми на значение, чтобы скопировать)</i>",
             reply_markup=weight_keypad_kb()
         )
         await callback.answer()
         return
 
+    # Выводим с названием упражнения
+    ex = await session.get(Exercise, data["ex_id"])
+    ex_name = ex.name if ex else "Упражнение"
+
     await callback.message.edit_text(
-        f"<b>Ввод повторов</b>\n\nТекущее значение: <b>{current_val or '0'}</b>",
+        f"🏋️ <b>{ex_name}</b>\n\n"
+        f"Ввод повторов: <code>{current_val or '0'}</code>\n\n"
+        f"<i>Выбери цифры на панели ниже или нажми «Готово»</i>",
         reply_markup=numeric_keypad_kb()
     )
     await callback.answer()

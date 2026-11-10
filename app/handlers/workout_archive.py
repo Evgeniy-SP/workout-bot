@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Exercise, SessionExerciseNote, SessionSet, \
     WorkoutSession, WorkoutType
+from app.db.queries import get_active_session
 from app.keyboards.workout_kb import (
     archive_card_kb, archive_list_kb, archived_workout_card_kb,
     confirm_archive_delete_kb, confirm_workout_delete_kb,
@@ -418,9 +419,14 @@ async def cb_restore_merge(callback: CallbackQuery, session: AsyncSession):
 
     wt = await session.get(WorkoutType, wt_id)
 
+    # Проверяем, есть ли активная сессия для этой тренировки
+    active = await get_active_session(session, wt.user_id)
+    active_session_id = active.id if (
+                active and active.workout_type_id == wt_id) else None
+
     await callback.message.edit_text(
         msg,
-        reply_markup=workout_card_kb(wt)
+        reply_markup=workout_card_kb(wt, active_session_id=active_session_id)
     )
     await callback.answer("Восстановлено")
 
@@ -480,9 +486,11 @@ async def cb_arch_del_yes(callback: CallbackQuery, session: AsyncSession):
     wt = await session.get(WorkoutType, wt_id)
 
     if not archived:
+        active = await get_active_session(session, wt.user_id)
+        active_session_id = active.id if (active and active.workout_type_id == wt_id) else None
         await callback.message.edit_text(
             f"🗑 Упражнение <b>{name}</b> удалено навсегда.\n\n📦 Архив пуст.",
-            reply_markup=workout_card_kb(wt)
+            reply_markup=workout_card_kb(wt, active_session_id=active_session_id)
         )
     else:
         grouped = {}
