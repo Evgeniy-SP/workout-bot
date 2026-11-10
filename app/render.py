@@ -216,7 +216,8 @@ def render_strength_summary(ex: Exercise, sets: list,
                             last_weight: str | None = None,
                             last_date: str | None = None,
                             timer_str: str | None = None,
-                            rest_time_str: str | None = None
+                            rest_time_str: str | None = None,
+                            ex_duration_str: str | None = None
                             ) -> str:
     if not sets:
         return f"🏋️ <b>{ex.name}</b>\n\nПока нет подходов."
@@ -268,6 +269,8 @@ def render_strength_summary(ex: Exercise, sets: list,
     stats = f"<blockquote>📈 Всего повторов: <b>{total_reps}</b>"
     if total_volume > 0:
         stats += f"\n⚖️ Тоннаж: <b>{total_volume:g} кг</b>"
+    if ex_duration_str:
+        stats += f"\n⏱ Время: <b>{ex_duration_str}</b>"
     stats += "</blockquote>"
 
     lines.append(f"\n{stats}")

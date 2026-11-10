@@ -6,7 +6,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import SessionExerciseNote, WorkoutSession
-from app.keyboards.workout_kb import cancel_kb, note_edit_kb
+from app.db.queries import get_last_completed_set, get_last_note_for_exercise
+from app.keyboards.workout_kb import note_edit_kb
 from app.services.training_service import render_approach_screen, render_list
 from app.states import TrainingFSM
 
@@ -33,17 +34,28 @@ async def cb_note_ex_start(callback: CallbackQuery, session: AsyncSession,
     )
     note = existing.scalar_one_or_none()
 
+    # Достаем прошлую заметку (из прошлой тренировки)
+    ws = await session.get(WorkoutSession, session_id)
+    last_set = await get_last_completed_set(session, ws.user_id, ex_id, current_session_id=session_id)
+    last_note_text = None
+    if last_set:
+        last_note_text = await get_last_note_for_exercise(session, ex_id, last_set.session_id)
+
     if note:
         text = (
             f"✏️ <b>Редактирование заметки</b>\n\n"
             f"Текущая заметка:\n<b><code>{note.note}</code></b>\n\n"
-            "Введи новый текст (нажми на старую заметку, чтобы скопировать):"
         )
+        if last_note_text:
+            text += f"Прошлая заметка:\n<b><code>{last_note_text}</code></b>\n\n"
+        text += "Введи новый текст (нажми на любую заметку выше, чтобы скопировать):"
     else:
-        text = (
-            "📝 <b>Новая заметка к упражнению</b>\n\n"
-            "Напиши текст заметки:"
-        )
+        text = "📝 <b>Новая заметка к упражнению</b>\n\n"
+        if last_note_text:
+            text += f"Прошлая заметка:\n<b><code>{last_note_text}</code></b>\n\n"
+            text += "Можешь написать свой текст или скопировать прошлый:"
+        else:
+            text += "Напиши текст заметки:"
 
     await callback.message.edit_text(
         text,
@@ -124,6 +136,12 @@ async def cb_session_note_start(callback: CallbackQuery, session: AsyncSession,
     if not ws:
         return await callback.answer("Тренировка не найдена", show_alert=True)
 
+    # Достаем прошлую заметку из предыдущей тренировки этого же типа
+    from app.db.queries import get_last_workout_note
+    last_session_note = await get_last_workout_note(
+        session, ws.user_id, ws.workout_type_id, session_id
+    )
+
     await state.clear()
     await state.set_state(TrainingFSM.entering_session_note)
     await state.update_data(session_id=session_id, return_to="tr_list",
@@ -135,13 +153,17 @@ async def cb_session_note_start(callback: CallbackQuery, session: AsyncSession,
         text = (
             f"✏️ <b>Редактирование общей заметки</b>\n\n"
             f"Текущая заметка:\n<b><code>{ws.notes}</code></b>\n\n"
-            "Введи новый текст (нажми на старую заметку, чтобы скопировать):"
         )
+        if last_session_note:
+            text += f"Прошлая заметка:\n<b><code>{last_session_note}</code></b>\n\n"
+        text += "Введи новый текст (нажми на любую заметку выше, чтобы скопировать):"
     else:
-        text = (
-            "📝 <b>Новая общая заметка</b>\n\n"
-            "Напиши текст заметки (например, «плохо спал», «болит плечо»):"
-        )
+        text = "📝 <b>Новая общая заметка</b>\n\n"
+        if last_session_note:
+            text += f"Прошлая заметка:\n<b><code>{last_session_note}</code></b>\n\n"
+            text += "Можешь написать свой текст или скопировать прошлый:"
+        else:
+            text += "Напиши текст заметки (например, «плохо спал», «болит плечо»):"
 
     await callback.message.edit_text(
         text,

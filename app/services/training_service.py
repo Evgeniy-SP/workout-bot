@@ -239,6 +239,18 @@ async def render_approach_screen(
             last_date = to_msk(last_ws.started_at).strftime("%d.%m.%y")
 
     if plan > 0 and len(completed) >= plan:
+        # Считаем время выполнения упражнения
+        ex_duration_str = None
+        if len(completed) > 1:
+            first_time = completed[0].completed_at
+            last_time = completed[-1].completed_at
+            if first_time and last_time:
+                delta = last_time - first_time
+                total_min = int(delta.total_seconds() // 60)
+                if total_min > 0:
+                    ex_duration_str = f"{total_min} мин"
+                else:
+                    ex_duration_str = "меньше 1 мин"
         # Все подходы выполнены — экран итогов
         text = render_strength_summary(
             ex, completed,
@@ -248,7 +260,8 @@ async def render_approach_screen(
             last_weight=last_weight,
             last_date=last_date,
             timer_str=timer_str,
-            rest_time_str=rest_time_str
+            rest_time_str=rest_time_str,
+            ex_duration_str=ex_duration_str
         )
         kb = strength_summary_kb(session_id, ex, completed,
                                  next_ex_id=next_ex_id, prev_ex_id=prev_ex_id,
