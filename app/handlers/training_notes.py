@@ -171,20 +171,21 @@ async def fsm_session_note_save(message: Message, state: FSMContext,
         reply_markup=kb
     )
 
-    @router.callback_query(F.data.startswith("tr_sess_note_del:"))
-    async def cb_session_note_delete(callback: CallbackQuery,
-                                     session: AsyncSession, state: FSMContext):
-        await state.clear()
-        session_id = int(callback.data.split(":")[1])
 
-        ws = await session.get(WorkoutSession, session_id)
-        if ws:
-            ws.notes = None
-            await session.commit()
+@router.callback_query(F.data.startswith("tr_sess_note_del:"))
+async def cb_session_note_delete(callback: CallbackQuery,
+                                 session: AsyncSession, state: FSMContext):
+    await state.clear()
+    session_id = int(callback.data.split(":")[1])
 
-            from app.services.training_service import render_list
-            text, kb = await render_list(session, session_id, ws.user_id)
-            await callback.message.edit_text("🗑 Заметка удалена.\n\n" + text,
-                                             reply_markup=kb)
+    ws = await session.get(WorkoutSession, session_id)
+    if ws:
+        ws.notes = None
+        await session.commit()
 
-        await callback.answer("Удалено")
+        from app.services.training_service import render_list
+        text, kb = await render_list(session, session_id, ws.user_id)
+        await callback.message.edit_text("🗑 Заметка удалена.\n\n" + text,
+                                         reply_markup=kb)
+
+    await callback.answer("Удалено")

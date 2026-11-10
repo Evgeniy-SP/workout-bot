@@ -341,7 +341,6 @@ async def cb_archive_view(callback: CallbackQuery, session: AsyncSession):
 
 
 @router.callback_query(F.data.startswith("ex_restore_merge:"))
-@router.callback_query(F.data.startswith("ex_restore_merge:"))
 async def cb_restore_merge(callback: CallbackQuery, session: AsyncSession):
     ex_id = int(callback.data.split(":")[1])
     ex = await session.get(Exercise, ex_id)
