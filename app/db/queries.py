@@ -104,3 +104,39 @@ async def get_last_workout_note(
 
     # Если заметка есть и она не пустая - возвращаем, иначе None
     return note if note else None
+
+
+async def get_user_sessions(
+        session: AsyncSession, user_id: int, offset: int, limit: int
+) -> list[WorkoutSession]:
+    """Получает список завершенных тренировок с пагинацией."""
+    from sqlalchemy.orm import selectinload
+
+    result = await session.execute(
+        select(WorkoutSession)
+        .where(
+            WorkoutSession.user_id == user_id,
+            WorkoutSession.finished_at.is_not(None)
+        )
+        .options(
+            selectinload(WorkoutSession.sets),
+            selectinload(WorkoutSession.workout_type)
+        )
+        .order_by(WorkoutSession.started_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(result.scalars())
+
+
+async def get_user_sessions_count(session: AsyncSession, user_id: int) -> int:
+    """Считает общее количество завершенных тренировок для пагинации."""
+    from sqlalchemy import func
+    result = await session.scalar(
+        select(func.count(WorkoutSession.id))
+        .where(
+            WorkoutSession.user_id == user_id,
+            WorkoutSession.finished_at.is_not(None)
+        )
+    )
+    return result or 0

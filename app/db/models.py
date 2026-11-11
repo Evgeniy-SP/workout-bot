@@ -95,6 +95,7 @@ class WorkoutSession(Base):
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)
+    workout_type: Mapped["WorkoutType"] = relationship()
 
     sets: Mapped[list["SessionSet"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"

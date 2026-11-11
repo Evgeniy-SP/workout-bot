@@ -1,13 +1,14 @@
-import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, \
     AsyncSession
+
 from app.db.base import Base
+
+
 # Импортируем модели, чтобы SQLAlchemy увидел их при создании таблиц
-from app.db.models import User, WorkoutType, Exercise, WorkoutSession, \
-    SessionSet, SessionExerciseNote
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def session():
     """Создает временную БД в памяти (SQLite) для каждого теста."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")

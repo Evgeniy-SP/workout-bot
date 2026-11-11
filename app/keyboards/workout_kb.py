@@ -1,5 +1,6 @@
 """Фабрики inline-клавиатур."""
-from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup, \
+    InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from app.db.models import Exercise, WorkoutType
@@ -624,7 +625,8 @@ def main_reply_kb() -> ReplyKeyboardMarkup:
     """Постоянная клавиатура внизу экрана."""
     kb = ReplyKeyboardBuilder()
     kb.button(text="🏠 Главная")
-    kb.adjust(1)
+    kb.button(text="📊 История")
+    kb.adjust(2)
     return kb.as_markup(resize_keyboard=True)
 
 
@@ -701,4 +703,41 @@ def text_weight_kb() -> InlineKeyboardMarkup:
     kb.button(text="⬅️ Назад к клавиатуре", callback_data="w_num:back_from_text")
     kb.button(text="❌ Отмена", callback_data="fsm_cancel")
     kb.adjust(1)
+    return kb.as_markup()
+
+
+def history_list_kb(sessions: list, page: int,
+                    has_next: bool) -> InlineKeyboardMarkup:
+    """Клавиатура для списка истории с пагинацией."""
+    kb = InlineKeyboardBuilder()
+
+    for ws in sessions:
+        from app.utils import fmt_msk_date
+        date_str = fmt_msk_date(ws.started_at)[:5]
+        workout_name = ws.workout_type.name if ws.workout_type else "Тренировка"
+        done_sets = sum(1 for s in ws.sets if s.completed)
+
+        kb.button(
+            text=f"🏋️ {workout_name} | {date_str} ({done_sets} подх.)",
+            callback_data=f"hist_view:{ws.id}"
+        )
+
+    # Готовим кнопки навигации
+    nav_count = 0
+    if page > 0:
+        kb.button(text="⬅️ Назад", callback_data=f"hist_page:{page - 1}")
+        nav_count += 1
+    if has_next:
+        kb.button(text="Вперед ➡️", callback_data=f"hist_page:{page + 1}")
+        nav_count += 1
+
+    kb.button(text="🏠 В главное меню", callback_data="wt_list")
+
+    # Настраиваем сетку: все тренировки по 1, навигация в 1 ряд, меню в 1 ряд
+    sizes = [1] * len(sessions)
+    if nav_count > 0:
+        sizes.append(nav_count)  # Навигация в один ряд (2 кнопки)
+    sizes.append(1)  # Кнопка "В главное меню" в свой ряд
+
+    kb.adjust(*sizes)
     return kb.as_markup()
