@@ -219,37 +219,41 @@ from app.db.models import WorkoutType, WorkoutSession
 
 async def _get_sorted_workouts(session: AsyncSession, user_id: int) -> tuple[
     list[WorkoutType], set[int]]:
-    # 1. Получаем все активные тренировки
+    # Один запрос, который сразу подтягивает последнюю дату тренировки
+    from sqlalchemy import outerjoin, func
+    from app.db.models import WorkoutSession
+
     result = await session.execute(
-        select(WorkoutType)
+        select(WorkoutType,
+               func.max(WorkoutSession.started_at).label("last_date"))
+        .outerjoin(WorkoutSession,
+                   (WorkoutSession.workout_type_id == WorkoutType.id) & (
+                               WorkoutSession.user_id == user_id))
         .where(WorkoutType.user_id == user_id,
                WorkoutType.is_archived == False)
+        .group_by(WorkoutType.id)
     )
-    workouts = list(result.scalars())
 
-    # 2. Получаем даты последних выполнений для каждой
-    dates_result = await session.execute(
-        select(WorkoutSession.workout_type_id,
-               func.max(WorkoutSession.started_at))
-        .where(WorkoutSession.user_id == user_id)
-        .group_by(WorkoutSession.workout_type_id)
-    )
-    last_dates = dict(dates_result.all())  # {wt_id: last_date}
+    rows = result.all()
 
-    # 3. Делим на две группы
+    workouts = []
+    last_dates = {}
+    for wt, last_date in rows:
+        workouts.append(wt)
+        if last_date:
+            last_dates[wt.id] = last_date
+
+    # Делим на две группы
     in_rotation = [w for w in workouts if w.is_in_rotation]
     others = [w for w in workouts if not w.is_in_rotation]
 
-    # 4. Сортируем группу "В ротации"
+    # Сортируем
     from datetime import datetime, timezone
     min_date = datetime.min.replace(tzinfo=timezone.utc)
-
     in_rotation.sort(key=lambda w: last_dates.get(w.id, min_date))
-
-    # 5. Остальные сортируем по sort_order
     others.sort(key=lambda w: w.sort_order)
 
-    # 6. Собираем ID новых тренировок (у которых нет истории)
+    # Собираем ID новых
     new_wt_ids = {w.id for w in workouts if w.id not in last_dates}
 
     return in_rotation + others, new_wt_ids

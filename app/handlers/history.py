@@ -3,8 +3,9 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.queries import get_user_sessions, get_user_sessions_count
-from app.keyboards.workout_kb import history_list_kb
+from app.db.queries import get_user_sessions, get_user_sessions_count, get_session_details
+from app.keyboards.workout_kb import history_list_kb, history_details_kb
+from app.render import render_history_details
 from app.services.training_service import get_user
 
 router = Router()
@@ -75,9 +76,26 @@ async def cmd_history(message: Message, session: AsyncSession):
 
 @router.callback_query(F.data.startswith("hist_view:"))
 async def cb_history_view(callback: CallbackQuery, session: AsyncSession):
-    """Временная заглушка для просмотра деталей тренировки (C2.2)."""
-    session_id = int(callback.data.split(":")[1])
+    """Просмотр деталей конкретной тренировки."""
+    parts = callback.data.split(":")
+    session_id = int(parts[1])
+    page = int(parts[2])  # Достаем страницу, с которой пришли
 
-    await callback.answer(
-        "Детальный просмотр появится в следующем обновлении (C2.2)!",
-        show_alert=True)
+    # Загружаем сессию со всеми связями
+    ws = await get_session_details(session, session_id)
+    if not ws:
+        return await callback.answer("Тренировка не найдена", show_alert=True)
+
+    # Рендерим текст
+    text = render_history_details(ws)
+
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=history_details_kb(page)
+        )
+    except Exception as e:
+        # На случай, если текст не изменился
+        pass
+
+    await callback.answer()

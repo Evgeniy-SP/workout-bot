@@ -247,11 +247,24 @@ async def cb_finish_ask(callback: CallbackQuery, session: AsyncSession):
                 not_done += 1
 
     if not_done > 0:
+        # Собираем названия невыполненных упражнений
+        incomplete_names = []
+        for ex in wt.exercises:
+            sets = sets_by_ex.get(ex.id, [])
+            done = sum(1 for s in sets if s.completed)
+            plan = (ex.sets or 0) if ex.kind == "strength" else 1
+            is_done = done >= plan
+
+            # Если не сделано и это не опциональное
+            if not is_done and not ex.is_optional:
+                incomplete_names.append(f"▪️ {ex.name} ({done}/{plan})")
+
         text = (
             f"🏁 <b>Завершить тренировку?</b>\n\n"
-            f"⚠️ Не выполнено: <b>{not_done} из {total_ex}</b> упражнений.\n\n"
-            "Тренировка сохранится в истории, но по этим упражнениям "
-            "не будет записано ни одного подхода.\n\n"
+            f"⚠️ Не выполнено полностью: <b>{not_done} из {total_ex}</b> упражнений:\n"
+            + "\n".join(incomplete_names) + "\n\n"
+            "Тренировка сохранится в истории. Те подходы, которые ты успел сделать, будут записаны. "
+            "Недоделанные подходы не сохранятся.\n\n"
             "Точно завершить?"
         )
     else:
@@ -366,3 +379,54 @@ async def cb_finish_confirm(callback: CallbackQuery, session: AsyncSession,
     await callback.message.edit_text("\n".join(lines),
                                      reply_markup=after_finish_kb())
     await callback.answer("Тренировка завершена")
+
+
+@router.callback_query(F.data.startswith("tr_finish_ex:"))
+async def cb_finish_ex_early(callback: CallbackQuery, session: AsyncSession):
+    from app.db.models import SessionSkippedExercise
+    from app.services.training_service import render_approach_screen
+
+    _, sess_str, ex_str = callback.data.split(":")
+    session_id = int(sess_str)
+    ex_id = int(ex_str)
+
+    # Ставим метку в БД
+    skipped = SessionSkippedExercise(session_id=session_id, exercise_id=ex_id)
+    session.add(skipped)
+    await session.commit()
+
+    # Перерисовываем экран (render_approach_screen сам поймет, что is_skipped=True и покажет итоги)
+    result = await render_approach_screen(session, session_id, ex_id)
+    if result:
+        text, kb = result
+        await callback.message.edit_text(
+            "🏁 Упражнение завершено досрочно.\n\n" + text, reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tr_resume_ex:"))
+async def cb_resume_ex(callback: CallbackQuery, session: AsyncSession):
+    from app.db.models import SessionSkippedExercise
+    from app.services.training_service import render_approach_screen
+    from sqlalchemy import delete
+
+    _, sess_str, ex_str = callback.data.split(":")
+    session_id = int(sess_str)
+    ex_id = int(ex_str)
+
+    # Удаляем метку
+    await session.execute(
+        delete(SessionSkippedExercise).where(
+            SessionSkippedExercise.session_id == session_id,
+            SessionSkippedExercise.exercise_id == ex_id
+        )
+    )
+    await session.commit()
+
+    # Перерисовываем (теперь is_skipped=False, покажется обычный экран подхода)
+    result = await render_approach_screen(session, session_id, ex_id)
+    if result:
+        text, kb = result
+        await callback.message.edit_text(
+            "🔄 Упражнение возобновлено.\n\n" + text, reply_markup=kb)
+    await callback.answer("Возобновлено")

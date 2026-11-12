@@ -140,3 +140,21 @@ async def get_user_sessions_count(session: AsyncSession, user_id: int) -> int:
         )
     )
     return result or 0
+
+
+async def get_session_details(session: AsyncSession,
+                              session_id: int) -> WorkoutSession | None:
+    """Загружает сессию со всеми подходами и упражнениями для детального просмотра."""
+    from sqlalchemy.orm import selectinload
+    from app.db.models import Exercise
+
+    result = await session.execute(
+        select(WorkoutSession)
+        .where(WorkoutSession.id == session_id)
+        .options(
+            selectinload(WorkoutSession.workout_type),
+            selectinload(WorkoutSession.sets).selectinload(SessionSet.exercise),
+            selectinload(WorkoutSession.sets)
+        )
+    )
+    return result.scalar_one_or_none()

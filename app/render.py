@@ -38,7 +38,8 @@ def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
                          timer_str: str | None = None,
                          last_exercise_name: str | None = None,
                          session_note: str | None = None,
-                         last_session_note: str | None = None
+                         last_session_note: str | None = None,
+                         skipped_ex_ids: set = None
                          ) -> str:
     from app.utils import fmt_msk_datetime, format_duration
 
@@ -81,7 +82,9 @@ def render_training_list(wt: WorkoutType, all_exercises: list[Exercise],
         plan_sets = (ex.sets or 0) if ex.kind == "strength" else 1
         is_done = done_sets >= plan_sets
 
-        if done_sets == 0:
+        if skipped_ex_ids and ex.id in skipped_ex_ids:
+            icon = "🔘"
+        elif done_sets == 0:
             icon = "⚪"
         elif is_done:
             icon = "✅"
@@ -132,8 +135,12 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
                     rest_time_str: str | None = None,
                     timer_str: str | None = None,
                     current_note: str | None = None,
-                    last_date: str | None = None) -> str:
+                    last_date: str | None = None,
+                    is_skipped: bool = False) -> str: # <--- ДОБАВИЛИ ПАРАМЕТР
     from app.utils import format_duration
+
+    # Статус завершения
+    skipped_status = "\n🏁 <b>Завершено досрочно</b>" if is_skipped else ""
 
     if ex.kind == "strength":
         if last_reps or last_weight:
@@ -150,7 +157,7 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
         done_sets = set_num - 1
         blockquote = (
             f"<blockquote>"
-            f"📈 Выполнено: <b>{done_sets}</b> из <b>{ex.sets}</b>\n"
+            f"📈 Выполнено: <b>{done_sets}</b> из <b>{ex.sets}</b>{skipped_status}\n" # <--- ВСТАВИЛИ СТАТУС
             f"📍 Текущий: <b>Подход {set_num}</b>\n"
             f"{history_text}"
             f"</blockquote>"
@@ -173,7 +180,6 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
         if rest_time_str:
             extra += f"⏱ <i>Отдых: {rest_time_str}</i>"
 
-        # Если есть таймер или отдых, добавляем двойной перенос перед блоком
         if extra:
             extra = "\n\n" + extra.strip()
 
@@ -190,7 +196,7 @@ def render_approach(ex: Exercise, set_num: int, planned_reps: int | None,
     else:
         duration_header = f"📋 <b>План: {format_duration(planned_duration)}</b>"
 
-    blockquote = f"<blockquote>{duration_header}</blockquote>"
+    blockquote = f"<blockquote>{duration_header}{skipped_status}</blockquote>" # <--- ВСТАВИЛИ СТАТУС
 
     notes_text = ""
     if current_note:
@@ -217,7 +223,7 @@ def render_strength_summary(ex: Exercise, sets: list,
                             last_date: str | None = None,
                             timer_str: str | None = None,
                             rest_time_str: str | None = None,
-                            ex_duration_str: str | None = None
+                            is_skipped: bool = False  # <--- ДОБАВИЛИ ПАРАМЕТР
                             ) -> str:
     if not sets:
         return f"🏋️ <b>{ex.name}</b>\n\nПока нет подходов."
@@ -245,6 +251,10 @@ def render_strength_summary(ex: Exercise, sets: list,
 
     lines = [f"🏋️ <b>{ex.name}</b>\n"]
 
+    # Если упражнение завершено досрочно, выводим статус
+    if is_skipped:
+        lines.append("🏁 <b>Завершено досрочно</b>\n")
+
     if current_note:
         lines.append(f"📝 <i>Текущая заметка: {current_note}</i>")
     if last_note:
@@ -260,24 +270,20 @@ def render_strength_summary(ex: Exercise, sets: list,
         weight_text = format_weight(s.weight_kg)
         lines.append(f"✅ <b>{s.set_number}.</b> {reps} × <b>{weight_text}</b>")
 
-    # --- ДОБАВЛЯЕМ СТРОКУ С ПРОШЛОЙ ТРЕНИРОВКОЙ ---
     if last_reps or last_weight:
         date_str = f" ({last_date})" if last_date else ""
-        lines.append(f"\n🕰 <b>В прошлый раз{date_str}: {last_reps} × {format_weight(last_weight)}</b>")
+        lines.append(
+            f"\n🕰 <b>В прошлый раз{date_str}: {last_reps} × {format_weight(last_weight)}</b>")
 
-    # --- ЗЕЛЕНЫЙ БЛОК СТАТИСТИКИ ---
     stats = f"<blockquote>📈 Всего повторов: <b>{total_reps}</b>"
     if total_volume > 0:
         stats += f"\n⚖️ Тоннаж: <b>{total_volume:g} кг</b>"
-    if ex_duration_str:
-        stats += f"\n⏱ Время: <b>{ex_duration_str}</b>"
     stats += "</blockquote>"
 
     lines.append(f"\n{stats}")
     lines.append(
         "\n💡 <i>Нажми на подход, чтобы изменить его, или добавь новый.</i>")
 
-    # --- ДОБАВЛЯЕМ ВЫВОД ТАЙМЕРА ---
     extra = ""
     if timer_str:
         extra += f"\n\n{timer_str}"
@@ -288,3 +294,87 @@ def render_strength_summary(ex: Exercise, sets: list,
         lines.append(extra)
 
     return "\n".join(lines)
+
+
+def render_history_details(ws) -> str:
+    """Формирует детальный отчет о прошедшей тренировке."""
+    from app.utils import fmt_msk_datetime, format_duration, format_weight
+    from collections import defaultdict
+
+    total_sets = len([s for s in ws.sets if s.completed])
+    total_reps = sum(s.reps or 0 for s in ws.sets if s.completed)
+
+    total_volume = 0.0
+    for s in ws.sets:
+        if s.completed and s.weight_kg:
+            try:
+                total_volume += (s.reps or 0) * float(s.weight_kg)
+            except ValueError:
+                pass
+
+    duration_min = 0
+    if ws.finished_at and ws.started_at:
+        duration_min = int(
+            (ws.finished_at - ws.started_at).total_seconds() // 60)
+
+    # === ЯКОРЬ ШИРИНЫ ===
+    # Невидимая строка для расширения пузыря Telegram
+    divider = "⎯" * 19
+
+    text = (
+        f"{divider}\n"
+        f"🏁 <b>{ws.workout_type.name}</b>\n"
+        f"📅 {fmt_msk_datetime(ws.started_at)} (МСК)\n"
+        f"⏱ Длительность: ~{duration_min} мин\n"
+        f"{divider}\n\n"
+    )
+
+    if ws.notes:
+        text += f"📝 <i>Заметка: {ws.notes}</i>\n\n"
+
+    stats = f"<blockquote>🔢 Всего подходов: <b>{total_sets}</b>\n"
+    stats += f"📈 Всего повторов: <b>{total_reps}</b>\n"
+    if total_volume > 0:
+        stats += f"⚖️ Тоннаж: <b>{total_volume:g} кг</b>"
+    stats += "</blockquote>\n\n"
+    text += stats
+
+    sets_by_ex = defaultdict(list)
+    for s in ws.sets:
+        if s.completed:
+            sets_by_ex[s.exercise.id].append(s)
+
+    if not sets_by_ex:
+        text += "<i>Нет выполненных подходов.</i>"
+        return text
+
+    text += "📋 <b>Детали по упражнениям:</b>\n\n"
+
+    for ex_id, sets in sets_by_ex.items():
+        sets.sort(key=lambda x: x.set_number)
+        ex = sets[0].exercise
+
+        kind_icon = "🏋️" if ex.kind == "strength" else "🏃"
+        text += f"{kind_icon} <b>{ex.name}</b>\n"
+
+        for i, s in enumerate(sets):
+            if ex.kind == "strength":
+                weight_str = format_weight(s.weight_kg)
+                text += f"  ▫️ {s.reps} × {weight_str}"
+            else:
+                dur_str = format_duration(s.duration_seconds)
+                text += f"  ▫️ {dur_str}"
+
+            if i < len(sets) - 1:
+                next_set = sets[i + 1]
+                if s.completed_at and next_set.completed_at:
+                    rest_sec = int((
+                                               next_set.completed_at - s.completed_at).total_seconds())
+                    m, sec = divmod(rest_sec, 60)
+                    rest_str = f"{m}м {sec}с" if m > 0 else f"{sec}с"
+                    text += f" <i>(интервал {rest_str})</i>"
+
+            text += "\n"
+        text += "\n"
+
+    return text.strip()

@@ -66,6 +66,17 @@ async def render_approach_screen(
     if not ws or not ex or ws.finished_at:
         return None
 
+    # === ПРОВЕРЯЕМ СТАТУС "ЗАВЕРШЕНО ДОСРОЧНО" ===
+    from app.db.models import SessionSkippedExercise
+    skipped_res = await session.execute(
+        select(SessionSkippedExercise.id).where(
+            SessionSkippedExercise.session_id == session_id,
+            SessionSkippedExercise.exercise_id == ex_id
+        )
+    )
+    is_skipped = skipped_res.scalar_one_or_none() is not None
+    # ==============================================
+
     wt = await load_workout(session, ws.workout_type_id)
     sets_by_ex = await get_sets_grouped(session, session_id)
 
@@ -126,7 +137,6 @@ async def render_approach_screen(
     timer_strs = []
     now = datetime.now(timezone.utc)
 
-    # 1. Таймер списка
     list_key = f"{session_id}_list"
     if list_key in ACTIVE_TIMERS:
         rem = int((ACTIVE_TIMERS[list_key]["end_time"] - now).total_seconds())
@@ -136,7 +146,6 @@ async def render_approach_screen(
             timer_strs.append(
                 f"⏱ <b>Таймер:</b> между упражнениями (осталось {t})")
 
-    # 2. Таймер упражнения
     ex_key = f"{session_id}_ex_{ex_id}"
     if ex_key in ACTIVE_TIMERS:
         rem = int((ACTIVE_TIMERS[ex_key]["end_time"] - now).total_seconds())
@@ -162,8 +171,8 @@ async def render_approach_screen(
 
     # ─── КАРДИО ───
     if ex.kind != "strength":
+        # Кардио редко завершается досрочно, но на всякий случай обработаем
         can_remove = not completed
-
         last_set = await get_last_completed_set(session, ws.user_id, ex_id,
                                                 current_session_id=session_id)
         last_duration = last_set.duration_seconds if last_set else None
@@ -178,51 +187,39 @@ async def render_approach_screen(
                 from app.utils import to_msk
                 last_date = to_msk(last_ws.started_at).strftime("%d.%m.%y")
 
-        if completed:
-            s = completed[0]
-            duration = format_duration(
-                s.duration_seconds) if s.duration_seconds else "—"
+        if completed or is_skipped:
+            # Если завершено или пропущено - показываем итог
+            if completed:
+                s = completed[0]
+                duration = format_duration(
+                    s.duration_seconds) if s.duration_seconds else "—"
+                congrats = random.choice(
+                    ["🎉 <b>Отлично! Кардио выполнено!</b>",
+                     "💪 <b>Класс! Время записано!</b>"])
+                note_text = ""
+                if note_obj: note_text += f"\n\n📝 <i>Текущая заметка: {note_obj.note}</i>"
+                if last_note: note_text += f"\n\n📝 <i>Прошлая заметка: {last_note}</i>"
+                text = f"<b>{ex.name}</b>\n\n{congrats}\n\n✅ Выполнено: <b>{duration}</b>" + note_text
+            else:
+                text = f"<b>{ex.name}</b>\n\n🏁 <b>Завершено досрочно</b>"
 
-            phrases = [
-                "🎉 <b>Отлично! Кардио выполнено!</b>",
-                "💪 <b>Класс! Время записано!</b>",
-                "🔥 <b>Хорошая работа! Кардио закрыто!</b>",
-                "🚀 <b>Есть! Сделано!</b>"
-            ]
-            congrats = random.choice(phrases)
-
-            note_text = ""
-            if note_obj:
-                note_text += f"\n\n📝 <i>Текущая заметка: {note_obj.note}</i>"
-            if last_note:
-                note_text += f"\n\n📝 <i>Прошлая заметка: {last_note}</i>"
-
-            text = (
-                    f"<b>{ex.name}</b>\n\n"
-                    f"{congrats}\n\n"
-                    f"✅ Выполнено: <b>{duration}</b>" + note_text
-            )
             kb = cardio_done_kb(session_id, ex, can_remove=can_remove,
-                                next_ex_id=next_ex_id, prev_ex_id=prev_ex_id)
+                                next_ex_id=next_ex_id, prev_ex_id=prev_ex_id,
+                                is_skipped=is_skipped)
         else:
-            text = render_approach(
-                ex, 1, None, None, ex.duration_seconds,
-                last_note=last_note,
-                last_duration=last_duration,
-                current_note=note_obj.note if note_obj else None,
-                last_date=last_date
-            )
-            kb = approach_kb(
-                session_id, ex, 1, None, None,
-                planned_duration=last_duration or ex.duration_seconds,
-                can_remove=can_remove,
-                use_history=bool(last_duration)
-            )
+            text = render_approach(ex, 1, None, None, ex.duration_seconds,
+                                   last_note=last_note,
+                                   last_duration=last_duration,
+                                   current_note=note_obj.note if note_obj else None,
+                                   last_date=last_date)
+            kb = approach_kb(session_id, ex, 1, None, None,
+                             planned_duration=last_duration or ex.duration_seconds,
+                             can_remove=can_remove,
+                             use_history=bool(last_duration))
         return text, kb
 
     # ─── СИЛОВОЕ ───
     plan = ex.sets or 0
-
     last_set = await get_last_completed_set(session, ws.user_id, ex_id,
                                             current_session_id=session_id)
     last_reps = last_set.reps if last_set else None
@@ -238,20 +235,8 @@ async def render_approach_screen(
             from app.utils import to_msk
             last_date = to_msk(last_ws.started_at).strftime("%d.%m.%y")
 
-    if plan > 0 and len(completed) >= plan:
-        # Считаем время выполнения упражнения
-        ex_duration_str = None
-        if len(completed) > 1:
-            first_time = completed[0].completed_at
-            last_time = completed[-1].completed_at
-            if first_time and last_time:
-                delta = last_time - first_time
-                total_min = int(delta.total_seconds() // 60)
-                if total_min > 0:
-                    ex_duration_str = f"{total_min} мин"
-                else:
-                    ex_duration_str = "меньше 1 мин"
-        # Все подходы выполнены — экран итогов
+    # === ГЛАВНОЕ ИЗМЕНЕНИЕ: ЕСЛИ is_skipped, ПРИНУДИТЕЛЬНО ПОКАЗЫВАЕМ ИТОГИ ===
+    if is_skipped or (plan > 0 and len(completed) >= plan):
         text = render_strength_summary(
             ex, completed,
             current_note=note_obj.note if note_obj else None,
@@ -261,41 +246,36 @@ async def render_approach_screen(
             last_date=last_date,
             timer_str=timer_str,
             rest_time_str=rest_time_str,
-            ex_duration_str=ex_duration_str
+            is_skipped=is_skipped  # <--- ПЕРЕДАЕМ СТАТУС
         )
         kb = strength_summary_kb(session_id, ex, completed,
                                  next_ex_id=next_ex_id, prev_ex_id=prev_ex_id,
-                                 has_timer=bool(timer_str))
+                                 has_timer=bool(timer_str),
+                                 is_skipped=is_skipped)  # <--- ПЕРЕДАЕМ СТАТУС
     else:
-        # Есть еще подходы — экран подхода
+        # Обычный экран подхода (если не пропущено и не все сделано)
         set_num = len(completed) + 1
-
         current_last_set = completed[-1] if completed else None
         action_weight = current_last_set.weight_kg if current_last_set else (
             last_weight if last_weight else ex.weight_kg)
         action_reps = current_last_set.reps if current_last_set else (
             last_reps if last_reps else ex.reps)
-
         can_remove = not sets
 
         text = render_approach(
             ex, set_num, ex.reps, ex.weight_kg, ex.duration_seconds,
-            last_reps=last_reps,
-            last_weight=last_weight,
-            last_note=last_note,
-            rest_time_str=rest_time_str,
-            timer_str=timer_str,
+            last_reps=last_reps, last_weight=last_weight, last_note=last_note,
+            rest_time_str=rest_time_str, timer_str=timer_str,
             current_note=note_obj.note if note_obj else None,
             last_date=last_date
         )
 
         kb = approach_kb(
             session_id, ex, set_num, action_reps, action_weight,
-            ex.duration_seconds, can_remove=can_remove,
-            use_history=bool(last_set),
+            ex.duration_seconds,
+            can_remove=can_remove, use_history=bool(last_set),
             is_first_set=(len(completed) == 0),
-            has_timer=(timer_str is not None),
-            completed_sets=completed
+            has_timer=(timer_str is not None), completed_sets=completed
         )
 
     return text, kb
@@ -308,6 +288,14 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
 
     exercises = sorted(wt.exercises, key=lambda e: e.sort_order)
     sets_by_ex = await get_sets_grouped(session, session_id)
+
+    # === ЗАГРУЖАЕМ СЕРЫЕ КРУЖКИ ===
+    from app.db.models import SessionSkippedExercise
+    skipped_res = await session.execute(
+        select(SessionSkippedExercise.exercise_id).where(SessionSkippedExercise.session_id == session_id)
+    )
+    skipped_ex_ids = set(skipped_res.scalars())
+    # ==============================
 
     last_time = None
     last_ex_id = None
@@ -335,8 +323,6 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
 
     timer_strs = []
     now = datetime.now(timezone.utc)
-
-    # 1. Проверяем таймер списка
     list_key = f"{session_id}_list"
     if list_key in ACTIVE_TIMERS:
         rem = int((ACTIVE_TIMERS[list_key]["end_time"] - now).total_seconds())
@@ -345,12 +331,10 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
             t = f"{m} мин {s} сек" if m > 0 else f"{s} сек"
             timer_strs.append(f"⏱ <b>Таймер:</b> между упражнениями (осталось {t})")
 
-    # 2. Проверяем все таймеры упражнений этой сессии
     for key, val in ACTIVE_TIMERS.items():
         if key.startswith(f"{session_id}_ex_"):
             rem = int((val["end_time"] - now).total_seconds())
             if rem > 0:
-                # Достаем ID упражнения из ключа
                 ex_id_from_key = int(key.split("_")[-1])
                 ex_name = "Упражнение"
                 for e in exercises:
@@ -375,7 +359,6 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
         ws.workout_type_id,
         session_id,
     )
-    # --------------------------------------------------------
 
     text = render_training_list(
         wt,
@@ -387,13 +370,15 @@ async def render_list(session: AsyncSession, session_id: int, user_id: int):
         timer_str=timer_str,
         last_exercise_name=last_ex_name,
         session_note=ws.notes,
-        last_session_note=last_session_note
+        last_session_note=last_session_note,
+        skipped_ex_ids=skipped_ex_ids # <--- ПЕРЕДАЕМ СЮДА
     )
 
     optional_count = sum(1 for e in exercises if e.is_optional)
     kb = training_list_kb(
         wt.id, session_id, exercises, sets_by_ex,
-        has_timer=(timer_str is not None), optional_count=optional_count
+        has_timer=(timer_str is not None), optional_count=optional_count,
+        skipped_ex_ids=skipped_ex_ids # <--- ПЕРЕДАЕМ СЮДА
     )
     return text, kb
 

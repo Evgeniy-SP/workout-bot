@@ -168,9 +168,15 @@ def confirm_workout_delete_kb(wt_id: int,
     kb.adjust(1)
     return kb.as_markup()
 
-def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
-                     sets_by_ex: dict, has_timer: bool = False,
-                     optional_count: int = 0) -> InlineKeyboardMarkup:
+
+def training_list_kb(
+        wt_id: int, session_id: int,
+        exercises: list[Exercise],
+        sets_by_ex: dict, has_timer: bool = False,
+        optional_count: int = 0,
+        skipped_ex_ids: set = None
+) -> InlineKeyboardMarkup:
+
     kb = InlineKeyboardBuilder()
     sizes = []
 
@@ -181,7 +187,9 @@ def training_list_kb(wt_id: int, session_id: int, exercises: list[Exercise],
         done_sets = sum(1 for s in sets if s.completed)
         plan_sets = (ex.sets or 0) if ex.kind == "strength" else 1
 
-        if done_sets == 0:
+        if skipped_ex_ids and ex.id in skipped_ex_ids:
+            icon = "🔘"
+        elif done_sets == 0:
             icon = "⚪"
         elif done_sets >= plan_sets:
             icon = "✅"
@@ -239,7 +247,8 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                 use_history: bool = False,
                 is_first_set: bool = True,
                 has_timer: bool = False,
-                completed_sets: list = None
+                completed_sets: list = None,
+                is_skipped: bool = False # <--- Параметр
                 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     sizes = []
@@ -267,7 +276,6 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                   callback_data=f"tr_save_planned:{session_id}:{ex.id}")
         sizes.append(1)
 
-        # В КАРДИО: ставим Ввести фактически и Заметку в один ряд
         kb.button(text="✏️ Ввести фактически",
                   callback_data=f"tr_custom:{session_id}:{ex.id}")
         kb.button(text="📝 Заметка",
@@ -304,9 +312,19 @@ def approach_kb(session_id: int, ex: Exercise, set_num: int,
                   callback_data=f"tr_note_ex:{session_id}:{ex.id}")
         sizes.append(1)
 
+    if is_skipped:
+        kb.button(text="🔄 Возобновить упражнение",
+                  callback_data=f"tr_resume_ex:{session_id}:{ex.id}")
+        sizes.append(1)
+    elif completed_sets and len(completed_sets) < (ex.sets or 1):
+        kb.button(text="🏁 Завершить упражнение досрочно",
+                  callback_data=f"tr_finish_ex:{session_id}:{ex.id}")
+        sizes.append(1)
+    # ==============================================================
+
+    # 4. Навигация
     nav_count = 0
     if completed_sets:
-        # Добавляем кнопку вызова меню редактирования
         kb.button(text="📝 Изменить подход",
                   callback_data=f"tr_edit_menu:{session_id}:{ex.id}")
         nav_count += 1
@@ -336,7 +354,9 @@ def cancel_kb() -> InlineKeyboardMarkup:
 
 def cardio_done_kb(session_id: int, ex: Exercise, can_remove: bool = False,
                    next_ex_id: int | None = None,
-                   prev_ex_id: int | None = None) -> InlineKeyboardMarkup:
+                   prev_ex_id: int | None = None,
+                   is_skipped: bool = False
+                   ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     sizes = []
 
@@ -370,7 +390,8 @@ def cardio_done_kb(session_id: int, ex: Exercise, can_remove: bool = False,
 def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
                         next_ex_id: int | None = None,
                         prev_ex_id: int | None = None,
-                        has_timer: bool = False
+                        has_timer: bool = False,
+                        is_skipped: bool = False
                         ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     sizes = []
@@ -390,17 +411,24 @@ def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
         num_sets -= row_size
 
     # 2. Основные действия
-    kb.button(text="➕ Добавить новый подход",
-              callback_data=f"tr_add_set:{session_id}:{ex.id}")
+    # ЕСЛИ УПРАЖНЕНИЕ НЕ ПРОПУЩЕНО, ДАЕМ ДОБАВИТЬ ПОДХОД.
+    # Если пропущено, пользователь должен сначала нажать "Возобновить"
+    if not is_skipped:
+        kb.button(text="➕ Добавить новый подход",
+                  callback_data=f"tr_add_set:{session_id}:{ex.id}")
+        sizes.append(1)
+
+    kb.button(text="📝 Заметка к упражнению",
+              callback_data=f"tr_note_ex:{session_id}:{ex.id}")
     sizes.append(1)
 
-    # --- ДОБАВЛЯЕМ ТАЙМЕРЫ ---
-    kb.button(text="⏱ 60 секунд", callback_data=f"tr_timer:60:{session_id}:ex:{ex.id}")
-    kb.button(text="⏱ 90 секунд", callback_data=f"tr_timer:90:{session_id}:ex:{ex.id}")
-    kb.button(text="⏱ Своё время", callback_data=f"tr_timer_custom:{session_id}:ex:{ex.id}")
-    sizes.append(3)
+    # === КНОПКА ВОЗОБНОВЛЕНИЯ ===
+    if is_skipped:
+        kb.button(text="🔄 Возобновить упражнение",
+                  callback_data=f"tr_resume_ex:{session_id}:{ex.id}")
+        sizes.append(1)
 
-    # А вот Отмена/Обновление зависят от того, запущен ли таймер
+    # 3. Таймеры
     if has_timer:
         kb.button(text="⏱️ Отменить",
                   callback_data=f"tr_timer_stop:{session_id}:ex:{ex.id}")
@@ -408,16 +436,19 @@ def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
                   callback_data=f"tr_refresh:{session_id}:{ex.id}")
         sizes.append(2)
     else:
+        kb.button(text="⏱ 60 секунд",
+                  callback_data=f"tr_timer:60:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱ 90 секунд",
+                  callback_data=f"tr_timer:90:{session_id}:ex:{ex.id}")
+        kb.button(text="⏱ Своё время",
+                  callback_data=f"tr_timer_custom:{session_id}:ex:{ex.id}")
+        sizes.append(3)
+
         kb.button(text="🔄 Обновить время отдыха",
                   callback_data=f"tr_refresh:{session_id}:{ex.id}")
         sizes.append(1)
-    # -------------------------
 
-    kb.button(text="📝 Заметка к упражнению",
-              callback_data=f"tr_note_ex:{session_id}:{ex.id}")
-    sizes.append(1)
-
-    # 3. Навигация: Список слева, Следующее справа
+    # 4. Навигация
     kb.button(text="⬅️ К списку упражнений",
               callback_data=f"tr_list:{session_id}")
     nav_count = 1
@@ -713,31 +744,61 @@ def history_list_kb(sessions: list, page: int,
 
     for ws in sessions:
         from app.utils import fmt_msk_date
+        # Форматируем дату как ДД.ММ
         date_str = fmt_msk_date(ws.started_at)[:5]
+
+        # Берем название тренировки (если загрузилось)
         workout_name = ws.workout_type.name if ws.workout_type else "Тренировка"
-        done_sets = sum(1 for s in ws.sets if s.completed)
+
+        # Считаем уникальные упражнения
+        unique_exercises = len(
+            set(s.exercise_id for s in ws.sets if s.completed))
+
+        # Считаем длительность
+        duration_str = ""
+        if ws.started_at and ws.finished_at:
+            duration_min = int(
+                (ws.finished_at - ws.started_at).total_seconds() // 60)
+            if duration_min >= 60:
+                h = duration_min // 60
+                m = duration_min % 60
+                duration_str = f", {h}ч {m}м"
+            else:
+                duration_str = f", {duration_min}м"
+
+        # Собираем текст кнопки
+        btn_text = f"🏋️ {workout_name} | {date_str} ({unique_exercises} упр.{duration_str})"
 
         kb.button(
-            text=f"🏋️ {workout_name} | {date_str} ({done_sets} подх.)",
-            callback_data=f"hist_view:{ws.id}"
+            text=btn_text,
+            callback_data=f"hist_view:{ws.id}:{page}"
         )
 
-    # Готовим кнопки навигации
-    nav_count = 0
+    # Пагинация (Назад/Вперед в один ряд)
+    nav_buttons = []
     if page > 0:
-        kb.button(text="⬅️ Назад", callback_data=f"hist_page:{page - 1}")
-        nav_count += 1
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад",
+                                                callback_data=f"hist_page:{page - 1}"))
     if has_next:
-        kb.button(text="Вперед ➡️", callback_data=f"hist_page:{page + 1}")
-        nav_count += 1
+        nav_buttons.append(InlineKeyboardButton(text="Вперед ➡️",
+                                                callback_data=f"hist_page:{page + 1}"))
 
-    kb.button(text="🏠 В главное меню", callback_data="wt_list")
+    if nav_buttons:
+        kb.row(*nav_buttons)
 
-    # Настраиваем сетку: все тренировки по 1, навигация в 1 ряд, меню в 1 ряд
-    sizes = [1] * len(sessions)
-    if nav_count > 0:
-        sizes.append(nav_count)  # Навигация в один ряд (2 кнопки)
-    sizes.append(1)  # Кнопка "В главное меню" в свой ряд
+    kb.row(
+        InlineKeyboardButton(text="🏠 В главное меню", callback_data="wt_list"))
 
-    kb.adjust(*sizes)
+    # Все кнопки тренировок по 1 в ряд
+    adjust_sizes = [1] * len(sessions)
+    kb.adjust(*adjust_sizes)
+
+    return kb.as_markup()
+
+
+def history_details_kb(page: int) -> InlineKeyboardMarkup:
+    """Клавиатура для карточки детального просмотра истории."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⬅️ Назад к истории", callback_data=f"hist_page:{page}")
+    kb.adjust(1)
     return kb.as_markup()

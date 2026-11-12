@@ -26,7 +26,6 @@ router = Router()
 @router.callback_query(F.data.startswith("tr_save_planned:"))
 async def cb_save_planned(callback: CallbackQuery, session: AsyncSession,
                           state: FSMContext):
-    await callback.answer("✅ Сохранено")
     await state.clear()
 
     _, sess_str, ex_str = callback.data.split(":")
@@ -38,9 +37,6 @@ async def cb_save_planned(callback: CallbackQuery, session: AsyncSession,
     if not ws or not ex:
         return
 
-    sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
-    set_num = next_set_num(sets)
-
     # Определяем плановые значения
     last_set = await get_last_completed_set(session, ws.user_id, ex_id)
     planned_weight = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
@@ -50,6 +46,29 @@ async def cb_save_planned(callback: CallbackQuery, session: AsyncSession,
         planned_duration = last_set.duration_seconds if last_set and last_set.duration_seconds else ex.duration_seconds
     else:
         planned_duration = None
+
+    # Красивое уведомление ДО сохранения
+    from app.utils import format_weight
+    if ex.kind == "strength":
+        alert_text = f"Как в предыдущем подходе: {planned_reps} × {format_weight(planned_weight)}"
+    else:
+        from app.utils import format_duration
+        alert_text = f"✅ Сохранено: {format_duration(planned_duration)}"
+    await callback.answer(alert_text)
+
+    # Удаляем метку досрочного завершения, если она была
+    from app.db.models import SessionSkippedExercise
+    from sqlalchemy import delete
+    await session.execute(
+        delete(SessionSkippedExercise).where(
+            SessionSkippedExercise.session_id == session_id,
+            SessionSkippedExercise.exercise_id == ex_id
+        )
+    )
+    await session.commit()
+
+    sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+    set_num = next_set_num(sets)
 
     new_set = SessionSet(
         session_id=session_id,
@@ -64,7 +83,6 @@ async def cb_save_planned(callback: CallbackQuery, session: AsyncSession,
     session.add(new_set)
     await session.commit()
 
-    # Обновляем экран (следующий подход или итоги)
     result_screen = await render_approach_screen(session, session_id, ex.id)
     if result_screen:
         text, kb = result_screen
@@ -85,7 +103,6 @@ async def cb_custom_start(callback: CallbackQuery, session: AsyncSession,
     if not ex:
         return await callback.answer("Не найдено", show_alert=True)
 
-    # Проверяем, редактируем мы существующий подход или создаем новый
     existing_id = None
     if ex.kind != "strength":
         sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
@@ -93,54 +110,55 @@ async def cb_custom_start(callback: CallbackQuery, session: AsyncSession,
         if completed:
             existing_id = completed[0].id
 
+    ws = await session.get(WorkoutSession, session_id)
+
+    # Ищем подсказку для повторов
+    sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+    completed = [s for s in sets if s.completed]
+
+    if completed:
+        # Берем из последнего подхода в ТЕКУЩЕЙ тренировке
+        suggested_weight = completed[-1].weight_kg
+        history = f"<i>В предыдущем подходе:</i> <code>{completed[-1].reps}</code> повторений"
+    else:
+        # Если сегодня еще не делали, берем из истории
+        last_set = await get_last_completed_set(session, ws.user_id, ex_id, current_session_id=session_id)
+        if last_set:
+            suggested_weight = last_set.weight_kg
+            history = f"<i>В прошлый раз:</i> <code>{last_set.reps}</code> повторений"
+        else:
+            suggested_weight = ex.weight_kg
+            history = f"<i>План:</i> <code>{ex.reps}</code> повторений"
+
     await state.update_data(
         session_id=session_id,
         ex_id=ex_id,
         editing_set_id=existing_id,
         return_to="tr_ex_card",
-        temp_num="",  # <-- Очищаем буфер для цифр
-        temp_weight=""  # <-- Очищаем буфер для веса
+        temp_num="",
+        temp_weight="",
+        suggested_weight=suggested_weight
     )
 
     if ex.kind == "strength":
-        # Достаем данные для подсказки
-        sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
-        completed = [s for s in sets if s.completed]
         set_num = len(completed) + 1
-
         await state.set_state(TrainingFSM.entering_reps)
 
-        # Получаем подсказку по прошлому разу
-        ws = await session.get(WorkoutSession, session_id)
-        last_set = await get_last_completed_set(session, ws.user_id, ex_id,
-                                                current_session_id=session_id)
-
-        if last_set:
-            history = f"🕰 Прошлый раз: <b>{last_set.reps} × {format_weight(last_set.weight_kg)}</b>"
-        else:
-            history = f"📋 План: <b>{ex.reps} × {format_weight(ex.weight_kg)}</b>"
-
-        # Выводим красивый текст с подсказкой и цифровую клавиатуру
         await callback.message.edit_text(
             f"🏋️ <b>{ex.name}</b> — подход {set_num}\n\n"
             f"{history}\n\n"
             f"Сколько повторов сделал? Введи число:",
             reply_markup=numeric_keypad_kb()
         )
-
     else:
-        # Логика для КАРДИО (остается без изменений)
         await state.set_state(TrainingFSM.entering_duration)
+        # ... (код для кардио оставляем без изменений) ...
         if existing_id:
             current_set = await session.get(SessionSet, existing_id)
-            current_text = (
-                format_duration(current_set.duration_seconds)
-                if current_set and current_set.duration_seconds
-                else "не задано"
-            )
+            current_text = (format_duration(
+                current_set.duration_seconds) if current_set and current_set.duration_seconds else "не задано")
             await callback.message.edit_text(
-                f"<b>{ex.name}</b>\n\n"
-                f"Сейчас: <b>{current_text}</b>\n\n"
+                f"<b>{ex.name}</b>\n\nСейчас: <b>{current_text}</b>\n\n"
                 "Введи новое время в минутах (можно 1.5 = 1 мин 30 сек):",
                 reply_markup=weight_keypad_kb(prefix="t_num"),
             )
@@ -148,8 +166,7 @@ async def cb_custom_start(callback: CallbackQuery, session: AsyncSession,
             plan_text = format_duration(
                 ex.duration_seconds) if ex.duration_seconds else "по факту"
             await callback.message.edit_text(
-                f"<b>{ex.name}</b>\n\n"
-                f"План: <b>{plan_text}</b>\n\n"
+                f"<b>{ex.name}</b>\n\nПлан: <b>{plan_text}</b>\n\n"
                 "Сколько минут заняло? Введи число (можно 1.5 = 1 мин 30 сек):",
                 reply_markup=weight_keypad_kb(prefix="t_num"),
             )
@@ -168,22 +185,19 @@ async def fsm_enter_reps(message: Message, state: FSMContext,
     data = await state.get_data()
     await state.update_data(custom_reps=int(text))
 
-    # Получаем подсказку по весу
     ex = await session.get(Exercise, data["ex_id"])
-    ws = await session.get(WorkoutSession, data["session_id"])
 
-    last_set = await get_last_completed_set(session, ws.user_id, data["ex_id"])
-    suggested = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
+    # Берем вес из стейта (который мы сохранили в cb_custom_start)
+    suggested = data.get("suggested_weight") or ex.weight_kg
     suggestion = format_weight(suggested) if suggested else "без веса"
 
     await state.set_state(TrainingFSM.entering_weight)
 
-    # Выводим с названием упражнения для ширины
     await message.answer(
         f"🏋️ <b>{ex.name}</b>\n\n"
         f"Повторов: <b>{text}</b>.\n"
         f"Теперь введи вес (снаряд).\n"
-        f"<i>В прошлом подходе:</i> <code>{suggestion}</code>\n"
+        f"<i>В предыдущем подходе:</i> <code>{suggestion}</code>\n\n"
         f"<i>(Нажми на значение, чтобы скопировать)</i>",
         reply_markup=weight_keypad_kb()
     )
@@ -252,6 +266,16 @@ async def _save_custom_set(message: Message, state: FSMContext,
         target.weight_kg = weight
         target.duration_seconds = duration
         target.completed_at = datetime.now(timezone.utc)
+
+        from app.db.models import SessionSkippedExercise
+        from sqlalchemy import delete
+        await session.execute(
+            delete(SessionSkippedExercise).where(
+                SessionSkippedExercise.session_id == session_id,
+                SessionSkippedExercise.exercise_id == ex_id
+            )
+        )
+
         await session.commit()
 
         parts = []
@@ -304,6 +328,16 @@ async def _save_custom_set(message: Message, state: FSMContext,
         completed_at=datetime.now(timezone.utc)
     )
     session.add(new_set)
+
+    from app.db.models import SessionSkippedExercise
+    from sqlalchemy import delete
+    await session.execute(
+        delete(SessionSkippedExercise).where(
+            SessionSkippedExercise.session_id == session_id,
+            SessionSkippedExercise.exercise_id == ex_id
+        )
+    )
+
     await session.commit()
 
     all_sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
@@ -351,31 +385,39 @@ async def cb_edit_set(callback: CallbackQuery, session: AsyncSession,
     if not ex:
         return await callback.answer("Упражнение не найдено", show_alert=True)
 
-    weight_text = format_weight(target.weight_kg)
+    # Ищем подсказку для повторов (исключая текущий редактируемый подход)
+    ws = await session.get(WorkoutSession, session_id)
+    sets = (await get_sets_grouped(session, session_id)).get(ex.id, [])
+    completed = [s for s in sets if s.completed and s.id != set_id]
+
+    if completed:
+        suggested_reps = completed[-1].reps
+        history_text = f"<i>В предыдущем подходе:</i> <code>{suggested_reps}</code> повторений"
+    else:
+        last_set = await get_last_completed_set(session, ws.user_id, ex.id, current_session_id=session_id)
+        if last_set:
+            suggested_reps = last_set.reps
+            history_text = f"<i>В прошлый раз:</i> <code>{suggested_reps}</code> повторений"
+        else:
+            suggested_reps = ex.reps
+            history_text = f"<i>План:</i> <code>{suggested_reps}</code> повторений"
 
     await state.update_data(
         session_id=session_id,
         ex_id=ex.id,
         editing_set_id=set_id,
         return_to="tr_strength_summary",
-        temp_num=""  # <-- ОЧИСТИЛИ БУФЕР
+        temp_num="",
+        suggested_weight=target.weight_kg # Сохраняем текущий вес для следующего шага
     )
     await state.set_state(TrainingFSM.entering_reps)
 
-    # Создаем клавиатуру и добавляем кнопку удаления
-    kb = numeric_keypad_kb()
-    kb.inline_keyboard.append([
-        InlineKeyboardButton(
-            text="🗑 Удалить подход",
-            callback_data=f"tr_delete_set:{session_id}:{set_id}"
-        )
-    ])
-
+    # ЕДИНЫЙ СТИЛЬ, БЕЗ "ТЕКУЩЕГО ЗНАЧЕНИЯ"
     await callback.message.edit_text(
-        f"<b>{ex.name}</b> — подход {target.set_number}\n\n"
-        f"Текущее значение: <code>{target.reps} × {weight_text}</code>\n\n"
-        "Введи новое количество повторов:",
-        reply_markup=kb,
+        f"🏋️ <b>{ex.name}</b> — подход {target.set_number}\n\n"
+        f"{history_text}\n\n"
+        f"Сколько повторов сделал? Введи число:",
+        reply_markup=numeric_keypad_kb(),
     )
     await callback.answer()
 
@@ -535,18 +577,16 @@ async def cb_numeric_input(callback: CallbackQuery, state: FSMContext, session: 
         await state.set_state(TrainingFSM.entering_weight)
 
         ex = await session.get(Exercise, data["ex_id"])
-        ws = await session.get(WorkoutSession, data["session_id"])
 
-        last_set = await get_last_completed_set(session, ws.user_id,
-                                                data["ex_id"])
-        suggested = last_set.weight_kg if last_set and last_set.weight_kg else ex.weight_kg
+        # Берем вес из стейта
+        suggested = data.get("suggested_weight") or ex.weight_kg
         suggestion = format_weight(suggested) if suggested else "без веса"
 
         await callback.message.edit_text(
             f"🏋️ <b>{ex.name}</b>\n\n"
             f"Повторов: <b>{current_val}</b>.\n"
             f"Теперь введи вес (снаряд).\n"
-            f"<i>В прошлом подходе:</i> <code>{suggestion}</code>"
+            f"<i>В предыдущем подходе:</i> <code>{suggestion}</code>\n\n"
             f"<i>(Нажми на значение, чтобы скопировать)</i>",
             reply_markup=weight_keypad_kb()
         )

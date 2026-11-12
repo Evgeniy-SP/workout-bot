@@ -120,6 +120,7 @@ class SessionSet(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     session: Mapped["WorkoutSession"] = relationship(back_populates="sets")
+    exercise: Mapped["Exercise"] = relationship()
 
 
 class SessionExerciseNote(Base):
@@ -130,3 +131,12 @@ class SessionExerciseNote(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("workout_sessions.id", ondelete="CASCADE"), index=True)
     exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
     note: Mapped[str] = mapped_column(Text)
+
+
+class SessionSkippedExercise(Base):
+    """Упражнения, которые пользователь намеренно завершил досрочно."""
+    __tablename__ = "session_skipped_exercises"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("workout_sessions.id", ondelete="CASCADE"), index=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
