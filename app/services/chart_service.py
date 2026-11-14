@@ -8,46 +8,64 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime
 
+import io
+import matplotlib
 
-def generate_progress_chart(dates: list[datetime], weights: list[float],
-                            exercise_name: str) -> io.BytesIO:
-    """
-    Рисует линейный график веса по датам и возвращает картинку в виде байтов.
-    """
-    # Настраиваем стиль (темный, как в Telegram)
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime, timedelta  # <--- Добавили timedelta
+
+
+def generate_progress_chart(dates: list[datetime], values: list[float],
+                            title: str, y_label: str) -> io.BytesIO:
+    """Рисует график по датам и возвращает картинку в виде байтов."""
     plt.style.use('dark_background')
 
     fig, ax = plt.subplots(figsize=(8, 4), dpi=150)
 
-    # Рисуем линию и точки
-    ax.plot(dates, weights, marker='o', linestyle='-', color='#00c9ff',
-            linewidth=2, markersize=6)
+    if len(dates) == 1:
+        ax.plot(dates, values, marker='o', linestyle='', color='#00c9ff',
+                markersize=12)
+    else:
+        ax.plot(dates, values, marker='o', linestyle='-', color='#00c9ff',
+                linewidth=2, markersize=6)
 
-    # Красиво форматируем даты по оси X
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m'))
-    fig.autofmt_xdate()
 
-    # Заголовки
-    ax.set_title(f'Прогресс: {exercise_name}', fontsize=14, color='white',
-                 pad=15)
-    ax.set_ylabel('Вес (кг)', fontsize=12)
+    # === УМНОЕ МАСШТАБИРОВАНИЕ ОСИ X ===
+    if len(dates) == 1:
+        # Если 1 точка: показываем окно в 2 дня (день до и день после)
+        ax.set_xlim(dates[0] - timedelta(days=1), dates[0] + timedelta(days=1))
+    else:
+        # Если несколько точек: показываем от первой до последней + небольшой отступ по краям
+        min_date = dates[0] - timedelta(days=1)
+        max_date = dates[-1] + timedelta(days=1)
+        ax.set_xlim(min_date, max_date)
+
+        # Если точек мало (меньше 5), принудительно ставим метки на каждый день
+        if len(dates) <= 5:
+            ax.set_xticks(dates)
+            ax.set_xticklabels([d.strftime('%d.%m') for d in dates])
+
+    fig.autofmt_xdate()
+    # ==================================
+
+    ax.set_title(title, fontsize=14, color='white', pad=15)
+    ax.set_ylabel(y_label, fontsize=12)
     ax.set_xlabel('Дата', fontsize=12)
 
-    # Добавляем сетку
     ax.grid(True, linestyle='--', alpha=0.3)
 
-    # Подписываем точки значениями
-    for x, y in zip(dates, weights):
+    for x, y in zip(dates, values):
         ax.annotate(f'{y:g}', (x, y), textcoords="offset points",
                     xytext=(0, 10), ha='center', fontsize=9)
 
     plt.tight_layout()
 
-    # Сохраняем в память
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', transparent=False,
-                facecolor='#17212b')  # Цвет фона как у Telegram
+    plt.savefig(buf, format='png', transparent=False, facecolor='#17212b')
     buf.seek(0)
-    plt.close(fig)  # Обязательно закрываем фигуру, чтобы не жрало память
+    plt.close(fig)
 
     return buf

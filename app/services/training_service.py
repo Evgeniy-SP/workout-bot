@@ -5,6 +5,8 @@
 Никаких @router.message или @router.callback_query здесь быть не должно.
 """
 import random
+import re
+
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -431,38 +433,40 @@ async def load_workout_with_exercises(session: AsyncSession, wt_id: int):
     return result.scalar_one_or_none()
 
 
+import re
+
+
 def calculate_personal_records(sets: list) -> dict:
     """Считает личные рекорды (PR) на основе списка подходов."""
     if not sets:
-        return {"max_weight": 0.0, "max_volume": 0.0, "best_set": None}
+        return {"max_weight_val": 0.0, "max_weight_str": "", "max_volume": 0.0,
+                "best_set": None}
 
-    max_weight = 0.0
+    max_weight_val = 0.0
+    max_weight_str = ""
     max_volume = 0.0
     best_set = None
 
     for s in sets:
-        # Пропускаем подходы без веса или повторов
         if not s.weight_kg or not s.reps:
             continue
 
-        try:
-            weight = float(s.weight_kg)
-        except ValueError:
-            # Пропускаем текстовые веса (Своё тело, резинка)
-            continue
+        match = re.search(r'\d+(?:[.,]\d+)?', s.weight_kg.replace(',', '.'))
 
-        # Рекорд по максимальному весу
-        if weight > max_weight:
-            max_weight = weight
+        if match:
+            weight_val = float(match.group())
+            if weight_val > max_weight_val:
+                max_weight_val = weight_val
+                max_weight_str = s.weight_kg
 
-        # Рекорд по тоннажу за один подход (вес * повторы)
-        volume = weight * s.reps
-        if volume > max_volume:
-            max_volume = volume
-            best_set = s
+            volume = weight_val * s.reps
+            if volume > max_volume:
+                max_volume = volume
+                best_set = s
 
     return {
-        "max_weight": max_weight,
+        "max_weight_val": max_weight_val,
+        "max_weight_str": max_weight_str,
         "max_volume": max_volume,
-        "best_set": best_set  # Объект подхода, где был максимальный тоннаж
+        "best_set": best_set
     }

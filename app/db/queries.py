@@ -160,20 +160,28 @@ async def get_session_details(session: AsyncSession,
     return result.scalar_one_or_none()
 
 
-async def get_exercise_weight_history(session: AsyncSession,
-                                      exercise_id: int) -> list:
-    """Возвращает список подходов (с датой и весом) для построения графика."""
+async def get_exercise_history(
+    session: AsyncSession, user_id: int, exercise_name: str, exercise_kind: str
+) -> list:
+    """Возвращает историю подходов по ИМЕНИ упражнения (собирает со всех типов тренировок)."""
     from sqlalchemy.orm import selectinload
+    from app.db.models import WorkoutSession, Exercise
 
     result = await session.execute(
         select(SessionSet)
         .join(WorkoutSession, SessionSet.session_id == WorkoutSession.id)
+        .join(Exercise, SessionSet.exercise_id == Exercise.id)
         .where(
-            SessionSet.exercise_id == exercise_id,
-            SessionSet.completed == True,
-            SessionSet.weight_kg.is_not(None)
+            WorkoutSession.user_id == user_id,
+            Exercise.name == exercise_name,
+            Exercise.kind == exercise_kind,
+            SessionSet.completed == True
         )
-        .options(selectinload(SessionSet.session))
+        .options(
+            # Жадно загружаем сессию, тип тренировки и само упражнение
+            selectinload(SessionSet.session).selectinload(WorkoutSession.workout_type),
+            selectinload(SessionSet.exercise)
+        )
         .order_by(WorkoutSession.started_at.asc())
     )
     return list(result.scalars())

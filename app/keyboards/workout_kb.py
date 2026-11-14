@@ -802,3 +802,12 @@ def history_details_kb(page: int) -> InlineKeyboardMarkup:
     kb.button(text="⬅️ Назад к истории", callback_data=f"hist_page:{page}")
     kb.adjust(1)
     return kb.as_markup()
+
+
+def exercise_progress_kb(session_id: int, page: int) -> InlineKeyboardMarkup:
+    """Клавиатура для экрана прогресса упражнения."""
+    kb = InlineKeyboardBuilder()
+    # Возвращаемся к деталям этой же тренировки, откуда пришли
+    kb.button(text="⬅️ Назад к истории", callback_data=f"hist_view:{session_id}:{page}")
+    kb.adjust(1)
+    return kb.as_markup()
