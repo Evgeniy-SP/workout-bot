@@ -413,6 +413,11 @@ def strength_summary_kb(session_id: int, ex: Exercise, sets: list,
     # 2. Основные действия
     # ЕСЛИ УПРАЖНЕНИЕ НЕ ПРОПУЩЕНО, ДАЕМ ДОБАВИТЬ ПОДХОД.
     # Если пропущено, пользователь должен сначала нажать "Возобновить"
+    # 2. Основные действия
+    kb.button(text="📋 Сделать планом",
+              callback_data=f"tr_make_plan:{session_id}:{ex.id}")
+    sizes.append(1)
+
     if not is_skipped:
         kb.button(text="➕ Добавить новый подход",
                   callback_data=f"tr_add_set:{session_id}:{ex.id}")

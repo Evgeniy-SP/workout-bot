@@ -430,3 +430,55 @@ async def cb_resume_ex(callback: CallbackQuery, session: AsyncSession):
         await callback.message.edit_text(
             "🔄 Упражнение возобновлено.\n\n" + text, reply_markup=kb)
     await callback.answer("Возобновлено")
+
+
+@router.callback_query(F.data.startswith("tr_make_plan:"))
+async def cb_make_plan(callback: CallbackQuery, session: AsyncSession):
+    """Обновляет шаблон упражнения (план) фактическими данными из текущей тренировки."""
+    _, sess_str, ex_str = callback.data.split(":")
+    session_id = int(sess_str)
+    ex_id = int(ex_str)
+
+    from app.db.models import Exercise
+    from app.db.queries import get_sets_grouped
+    from app.services.training_service import render_approach_screen
+
+    ex = await session.get(Exercise, ex_id)
+    if not ex:
+        return await callback.answer("Упражнение не найдено", show_alert=True)
+
+    # Получаем все выполненные подходы в этой сессии
+    sets = (await get_sets_grouped(session, session_id)).get(ex_id, [])
+    completed = [s for s in sets if s.completed]
+
+    if not completed:
+        return await callback.answer("Нет выполненных подходов",
+                                     show_alert=True)
+
+    # Берем данные из ПОСЛЕДНЕГО выполненного подхода (как самый актуальный уровень)
+    last_set = completed[-1]
+
+    # Обновляем шаблон (работает и на увеличение, и на уменьшение)
+    ex.sets = len(completed)  # <-- Берем фактическое количество
+    if ex.kind == "strength":
+        ex.reps = last_set.reps
+        ex.weight_kg = last_set.weight_kg
+    else:
+        ex.duration_seconds = last_set.duration_seconds
+
+    await session.commit()
+
+    # Перерисовываем экран, чтобы пользователь увидел результат
+    result = await render_approach_screen(session, session_id, ex_id)
+    if result:
+        text, kb = result
+
+        # Формируем красивое сообщение об успехе
+        if ex.kind == "strength":
+            update_text = f"✅ Шаблон обновлен: <b>{ex.sets} подх. × {ex.reps} повт.</b>, вес <b>{ex.weight_kg or 'без веса'}</b>.\n\n"
+        else:
+            from app.utils import format_duration
+            update_text = f"✅ Шаблон обновлен: <b>{ex.sets} подх.</b> по <b>{format_duration(ex.duration_seconds)}</b>.\n\n"
+
+        await callback.message.edit_text(update_text + text, reply_markup=kb)
+    await callback.answer("План обновлен")
